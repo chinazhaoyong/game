@@ -12,7 +12,7 @@
     "nixpacksPlan": {
       "phases": {
         "setup": {
-          "nixPkgs": ["nodejs_22", "libsqlite3"]
+          "nixPkgs": ["libsqlite3"]
         }
       }
     }
