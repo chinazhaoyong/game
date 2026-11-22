@@ -1,0 +1,13 @@
+{
+  "name": "dajianghu",
+  "version": "1.0.0",
+  "description": "《大江湖》五域武侠 MUD",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node --experimental-sqlite server/index.js",
+    "seed": "node --experimental-sqlite server/seed.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

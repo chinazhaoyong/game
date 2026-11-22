@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#1a140c">
+  <meta name="format-detection" content="telephone=no">
+  <title>大江湖 · 五域武侠 MUD</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<!-- 登录页 -->
+<div id="boot" class="boot">
+  <div class="boot-inner">
+    <div class="boot-mark">江湖</div>
+    <h1>大江湖</h1>
+    <p class="boot-sub">五 域 武 侠 · 江 湖 好 汉</p>
+    <p class="boot-note">你在一间破庙里醒来，身上只剩一把生锈的短刀和几文碎银。<br>外面传来马蹄声——有人来了。</p>
+    <form id="authForm" class="auth">
+      <label>
+        <span>角色名</span>
+        <input id="authName" autocomplete="username" maxlength="12" placeholder="2–12 字，如 阿黎">
+      </label>
+      <label>
+        <span>口令</span>
+        <input id="authPass" type="password" autocomplete="current-password" maxlength="64" placeholder="至少 4 位">
+      </label>
+      <div class="auth-actions">
+        <button type="button" id="btnRegister">创建新角色</button>
+        <button type="submit" id="btnLogin" class="ghost">已有角色 · 进入</button>
+      </div>
+      <p class="auth-err" id="authErr"></p>
+    </form>
+    <p class="boot-foot">江湖之大，不在于地图格子，而在于你聊天时有多少东西可聊。<br>名望、势力、武功、传闻——这些都归你。</p>
+  </div>
+</div>
+
+<!-- 游戏主界面 -->
+<div id="app" class="app" hidden>
+  <header class="top">
+    <div class="brand">大江湖<em>·</em><span>五域武侠</span></div>
+    <div class="meta">
+      <span id="mRoom">—</span>
+      <i>/</i>
+      <span id="mDomain">—</span>
+      <i>/</i>
+      <span id="mWho">—</span>
+      <b id="net" class="net off" title="连接状态"></b>
+      <button id="helpBtn" class="help-btn" title="游戏教程">? 教程</button>
+    </div>
+  </header>
+
+  <!-- 帮助弹窗 -->
+  <div id="helpOverlay" class="help-overlay" hidden>
+    <div class="help-modal">
+      <div class="help-head">
+        <span class="help-title">江湖手札 · 新手教程</span>
+        <button id="helpClose" class="help-close">×</button>
+      </div>
+      <div class="help-body">
+
+        <div class="help-sec">
+          <div class="help-sec-h">① 怎么玩？不用记指令，说人话就行</div>
+          <div class="help-sec-b">
+            这是一个「文字武侠世界」。你在一个叫<b>青石镇</b>的小镇上醒来，外面有洛阳城、少林寺、襄阳城……
+            <br><br>
+            <b>不用打指令！直接说你想做什么：</b>
+            <div class="help-grid">
+              <div class="help-row"><code>看看这里</code><span>环顾四周，知道自己在哪、有什么人</span></div>
+              <div class="help-row"><code>我想去洛阳城</code><span>直接去某个地方</span></div>
+              <div class="help-row"><code>往南走 / 往东去</code><span>按方向移动</span></div>
+              <div class="help-row"><code>现在在哪</code><span>查询位置</span></div>
+              <div class="help-row"><code>想休息一下</code><span>进客栈满血满内力（花 2 两）</span></div>
+              <div class="help-row"><code>背包里有啥</code><span>查物品、银两、血量</span></div>
+              <div class="help-row"><code>我想学直拳</code><span>进武馆学武功</span></div>
+              <div class="help-row"><code>跟 路人_qingshi_0 唠唠</code><span>和 NPC 说话</span></div>
+              <div class="help-row"><code>打听一下那事</code><span>问 NPC 消息</span></div>
+              <div class="help-row"><code>江湖上有什么事</code><span>看茶馆公告板（传闻系统）</span></div>
+              <div class="help-row"><code>这里有什么店铺</code><span>显示所有店铺</span></div>
+              <div class="help-row"><code>去杂货铺</code><span>直接打开某家店的商品列表</span></div>
+              <div class="help-row"><code>买 馒头</code><span>购买物品</span></div>
+              <div class="help-row"><code>我身上有多少钱</code><span>查银两和状态</span></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="help-sec">
+          <div class="help-sec-h">② 战斗</div>
+          <div class="help-sec-b">
+            打 NPC 很简单：<code>揍他一顿</code> 或 <code>打 青石镇守卒</code>
+            <br>打 NPC 赢了涨<b>名望</b>，输了昏迷 2 分钟自动醒来。
+            <br><br>
+            <b>逃跑：</b><code>跑</code> / <code>想跑路</code>（70% 成功，失败扣 10% 血）
+            <br><b>认输：</b><code>服了认输</code>
+          </div>
+        </div>
+
+        <div class="help-sec">
+          <div class="help-sec-h">③ 任务 & 名望 & 势力</div>
+          <div class="help-sec-b">
+            <b>任务：</b>
+            <br>· <code>有什么活可以接</code> → 查看可接任务列表
+            <br>· <code>接 1</code> → 接第 1 个任务
+            <br>· <code>交</code> → 交任务（自动判断交付条件）
+            <br>· <code>放弃</code> → 放弃当前任务
+            <br>· 做任务可能触发<b>江湖火线</b>——全服事件
+            <br><br>
+            <b>名望（江湖地位）：</b>
+            <br>· 打 NPC、完成任务都会涨名望
+            <br>· 名望越高，商店折扣越大
+            <br>· 名望 ≥100 才能进黑市
+            <br>· <code>名望多少</code> / <code>我的名声如何</code>
+            <br><br>
+            <b>势力（门派关系）：</b>
+            <br>· 少林、武当、丐帮、明教等 20 个势力
+            <br>· 完成对应势力的任务涨声望
+            <br>· 声望 ≥20 才能加入门派
+            <br>· <code>和各派关系怎么样</code>
+            <br>· <code>加入 少林</code> / <code>退出门派</code>
+          </div>
+        </div>
+
+        <div class="help-sec">
+          <div class="help-sec-h">④ 跑商 · 赚钱</div>
+          <div class="help-sec-b">
+            <code>做买卖</code> / <code>跑商</code> → 显示<b>五域价差行情</b>
+            <br>
+            五域（中州/南疆/西域/东海/北荒）物价不同。在 A 域买便宜货，
+            运到 B 域高价卖，赚差价。路上可能遇到劫匪（概率低）。
+          </div>
+        </div>
+
+        <div class="help-sec">
+          <div class="help-sec-h">⑤ 恶名 & 通缉</div>
+          <div class="help-sec-b">
+            做黑活任务（<code>走私私盐</code>、<code>偷窃</code>）有 50% 概率<b>曝光</b>，
+            恶名 +10，还可能被<b>官府通缉</b>！
+            <br><br>
+            <b>洗白：</b><code>洗恶</code>（花 50 两，恶名 -30）
+          </div>
+        </div>
+
+        <div class="help-sec">
+          <div class="help-sec-h">⑥ 决斗（玩家 vs 玩家）</div>
+          <div class="help-sec-b">
+            <code>跟 XX 决斗</code> → 发起挑战
+            <br>· 对方收到请求，30 秒内要选
+            <br>· <code>接受决斗</code> / <code>拒绝决斗</code>
+            <br>· 胜方涨名望，败方 -70% 名望
+          </div>
+        </div>
+
+        <div class="help-sec">
+          <div class="help-sec-h">⑦ 全局指令速查</div>
+          <div class="help-sec-b">
+            <div class="help-grid">
+              <div class="help-row"><code>环顾</code><span>看四周</span></div>
+              <div class="help-row"><code>商店</code><span>列所有店铺</span></div>
+              <div class="help-row"><code>传闻</code><span>茶馆公告板</span></div>
+              <div class="help-row"><code>任务</code><span>可接任务</span></div>
+              <div class="help-row"><code>势力</code><span>门派声望</span></div>
+              <div class="help-row"><code>名望</code><span>江湖地位</span></div>
+              <div class="help-row"><code>火线</code><span>江湖大事件</span></div>
+              <div class="help-row"><code>跑商</code><span>五域价差</span></div>
+              <div class="help-row"><code>谁</code><span>在线玩家</span></div>
+              <div class="help-row"><code>客栈</code><span>休息</span></div>
+              <div class="help-row"><code>物品</code><span>查装备/银两</span></div>
+              <div class="help-row"><code>帮</code><span>看全部指令</span></div>
+            </div>
+            <div class="help-tip">💡 输入框里打「？」随时看帮助</div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <main class="main">
+    <!-- 左侧文字流 -->
+    <div class="log-area">
+      <div id="log" class="log"></div>
+      <form id="bar" class="bar">
+        <input id="cmd" autocomplete="off" placeholder="输入指令… 打「帮」看全部" autofocus>
+        <button type="submit">发送</button>
+      </form>
+    </div>
+
+    <!-- 右侧面板 -->
+    <aside class="pane-area">
+      <div id="tabs" class="tabs">
+        <button data-tab="state" class="on">此身</button>
+        <button data-tab="loc">此地</button>
+        <button data-tab="faction">势力</button>
+        <button data-tab="war">武功</button>
+        <button data-tab="quest">任务</button>
+        <button data-tab="rumor">江湖</button>
+      </div>
+      <div id="panes" class="panes">
+        <div class="pane on" data-pane="state"><!-- 此身 --></div>
+        <div class="pane" data-pane="loc"><!-- 此地 --></div>
+        <div class="pane" data-pane="faction"><!-- 势力 --></div>
+        <div class="pane" data-pane="war"><!-- 武功 --></div>
+        <div class="pane" data-pane="quest"><!-- 任务 --></div>
+        <div class="pane" data-pane="rumor"><!-- 江湖 --></div>
+      </div>
+      <div id="quick" class="quick">
+        <button data-cmd="环顾">环顾</button>
+        <button data-cmd="看">细看</button>
+        <button data-cmd="传闻">茶馆</button>
+        <button data-cmd="谁">谁在线</button>
+        <button data-cmd="名望">名望</button>
+        <button data-cmd="客栈">休息</button>
+        <button data-cmd="帮">帮</button>
+      </div>
+    </aside>
+  </main>
+</div>
+
+<script src="/app.js"></script>
+</body>
+</html>
