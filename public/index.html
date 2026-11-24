@@ -26,6 +26,15 @@
         <span>口令</span>
         <input id="authPass" type="password" autocomplete="current-password" maxlength="64" placeholder="至少 4 位">
       </label>
+      <div id="attrRoll" class="attr-roll" hidden>
+        <div class="attr-hint">掷先天根骨 —— 八维各 5–15，总点数 64–96 方可用</div>
+        <div id="attrGrid" class="attr-grid"></div>
+        <div class="attr-sum" id="attrSum"></div>
+        <div class="attr-actions">
+          <button type="button" id="btnReroll" class="ghost">🎲 重掷</button>
+          <button type="button" id="btnConfirmReg">✓ 就用这份，踏入江湖</button>
+        </div>
+      </div>
       <div class="auth-actions">
         <button type="button" id="btnRegister">创建新角色</button>
         <button type="submit" id="btnLogin" class="ghost">已有角色 · 进入</button>
@@ -48,6 +57,8 @@
       <span id="mWho">—</span>
       <b id="net" class="net off" title="连接状态"></b>
       <button id="helpBtn" class="help-btn" title="游戏教程">? 教程</button>
+      <button id="pwBtn" class="help-btn" title="修改密码" style="margin-left:4px">🔐 密码</button>
+      <button id="logoutBtn" class="help-btn" title="退出游戏" style="margin-left:4px">🚪 退出</button>
     </div>
   </header>
 
@@ -172,6 +183,18 @@
           </div>
         </div>
 
+        <div class="help-sec">
+          <div class="help-sec-h">⑧ 成长 · 打怪 · 生活技能</div>
+          <div class="help-sec-b">
+            <b>人物属性：</b><code>人物属性</code> 看等级 / 八维 / 派生 / 装备六槽
+            <br><b>背包：</b><code>背包</code> 列物品 · 面板里<b>双击</b>药品 = 吃一个，双击装备 = 穿上；属性面板双击装备槽 = 脱下
+            <br><b>练级：</b><code>打木人桩</code> 练拳涨熟练（上限 10 级）和经验 · 野外点击野怪即可攻击，或 <code>打 黄皮子</code>
+            <br><b>升级：</b>每升 1 级 +3 自由属性点，<code>加点</code> 后 <code>加 根骨 3</code> 分配
+            <br><b>生活：</b><code>采集</code> 采药材矿石 · <code>炼制</code>/<code>锻造</code>/<code>烹饪</code>/<code>缝纫</code> 把材料做成东西
+            <br><b>学武：</b><code>武馆</code> 列招式 · <code>学 直拳</code> 花学费学（学绝学可能永久加属性）
+          </div>
+        </div>
+
       </div>
     </div>
   </div>
@@ -189,7 +212,7 @@
     <!-- 右侧面板 -->
     <aside class="pane-area">
       <div id="tabs" class="tabs">
-        <button data-tab="state" class="on">此身</button>
+        <button data-tab="state" class="on">人物</button>
         <button data-tab="loc">此地</button>
         <button data-tab="faction">势力</button>
         <button data-tab="war">武功</button>
@@ -207,6 +230,15 @@
       <div id="quick" class="quick">
         <button data-cmd="环顾">环顾</button>
         <button data-cmd="看">细看</button>
+        <button data-cmd="背包">背包</button>
+        <button data-cmd="人物属性">属性</button>
+        <button data-cmd="加点">加点</button>
+        <button data-cmd="打木人桩">木人桩</button>
+        <button data-cmd="采集">采集</button>
+        <button data-cmd="炼制">炼制</button>
+        <button data-cmd="锻造">锻造</button>
+        <button data-cmd="烹饪">烹饪</button>
+        <button data-cmd="缝纫">缝纫</button>
         <button data-cmd="传闻">茶馆</button>
         <button data-cmd="谁">谁在线</button>
         <button data-cmd="名望">名望</button>

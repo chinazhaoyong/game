@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>大江湖 · GM 管理后台</title>
+  <link rel="stylesheet" href="/gm.css">
+</head>
+<body>
+
+<!-- GM 主界面（免密，直接进入）-->
+<div id="gmApp" class="gm-app">
+
+  <!-- 顶部栏 -->
+  <header class="gm-top">
+    <div class="gm-brand">🗡️ 大江湖 · GM 后台</div>
+    <div class="gm-status">
+      <span class="st-badge" id="stRunning">服务器 —</span>
+      <span class="st-badge" id="stOnline">在线 —</span>
+      <span class="st-badge" id="stTotal">玩家 —</span>
+      <span class="st-badge" id="stUptime">运行 —</span>
+    </div>
+    <div class="gm-actions">
+      <button id="gmStart" class="btn btn-ok">▶️ 启动服务器</button>
+      <button id="gmStop" class="btn btn-danger">⏹️ 停止服务器</button>
+      <button id="gmRefresh" class="btn">🔄 刷新</button>
+      <a id="gmOpenGame" href="#" target="_blank" class="btn">🎮 打开游戏</a>
+    </div>
+  </header>
+
+  <div class="gm-body">
+
+    <!-- 左侧：玩家列表 -->
+    <aside class="gm-sidebar">
+      <div class="gm-search">
+        <input id="gmSearch" placeholder="搜索玩家名...">
+      </div>
+      <div id="gmPlayerList" class="gm-player-list"></div>
+    </aside>
+
+    <!-- 右侧：详情 & 操作 -->
+    <main class="gm-main" id="gmMain">
+      <div class="gm-empty">👈 从左侧选择一个玩家开始管理</div>
+    </main>
+
+  </div>
+
+  <!-- 底部：全局野怪管理 -->
+  <section class="gm-global" id="gmGlobal"></section>
+</div>
+
+<script src="/gm.js"></script>
+</body>
+</html>

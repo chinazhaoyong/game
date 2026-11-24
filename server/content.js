@@ -2,6 +2,8 @@
 // —— 《大江湖》世界数据 ——
 // 五域地图 + 势力 + NPC + 招式 + 任务 + 火线 + 物价 + 战斗描述
 
+const MOVES = require('./moves_data.js'); // 20门派×30招 + 4通用 = 604招
+
 // ===== 五域 =====
 const DOMAINS = {
   zhongzhou: { id: 'zhongzhou', name: '中州', open: true },
@@ -30,7 +32,7 @@ const NODES = {
 
   // —— 西域 8 ——
   dunhuang:   { id: 'dunhuang',   domain: 'xiyu', name: '敦煌',        desc: '鸣沙山下的绿洲城，商队的起点也是终点。', exits: { S: 'xiyu_entrance', W: 'tianshan' } },
-  guangmingding:{id:'guangmingding',domain:'xiyu', name:'光明顶',  desc: '明教总坛。山势陡峭，只有一条暗道能上。', exits: { E: 'kunlun' } },
+  guangmingding:{id:'guangmingding',domain:'xiyu', name:'圣火峰',  desc: '明教总坛。山势陡峭，只有一条暗道能上。', exits: { E: 'kunlun' } },
   tianshan:   { id: 'tianshan',   domain: 'xiyu', name: '天山雪原',    desc: '白雪皑皑，雪莲盛开。冰峰之上有天山派练功的身影。', exits: { E: 'dunhuang' } },
   kunlun:     { id: 'kunlun',     domain: 'xiyu', name: '昆仑山口',    desc: '千年积雪，昆仑派隐于此。山口常有罡风。', exits: { W: 'guangmingding' } },
   desert:     { id: 'desert',     domain: 'xiyu', name: '沙漠商道',    desc: '黄沙万里，骆驼铃声断续。路上有劫匪出没。', exits: { E: 'dunhuang', W: 'dunhuang' } },
@@ -52,15 +54,15 @@ const NODES = {
   quanzhou:   { id: 'quanzhou',   domain: 'donghai', name: '泉州',    desc: '海滨商港，各国商船停靠。盐帮势力最大。', exits: { W: 'yanyang', S: 'saltyard' } },
   saltyard:   { id: 'saltyard',   domain: 'donghai', name: '盐场',    desc: '盐田连绵，盐帮在此晒盐收盐。', exits: { N: 'quanzhou' } },
   wumingdao:  { id: 'wumingdao',  domain: 'donghai', name: '无名岛',  desc: '海盗窝所在。岛上只有一条路，路尽头是海盗头目的寨。', exits: { N: 'quanzhou' } },
-  taohuadao:  { id: 'taohuadao',  domain: 'donghai', name: '桃花岛',  desc: '海上仙岛，黄老邪隐居于此。岛上遍布奇门机关。', exits: { N: 'quanzhou' } },
+  taohuadao:  { id: 'taohuadao',  domain: 'donghai', name: '崆峒岛',  desc: '海上仙岛，崆峒派隐于此。岛上遍布奇门机关。', exits: { N: 'quanzhou' } },
   haidao:     { id: 'haidao',     domain: 'donghai', name: '海盗窝',  desc: '无名岛深处，海贼分赃议事的洞窟。', exits: { N: 'wumingdao' } },
   pier:       { id: 'pier',       domain: 'donghai', name: '码头',    desc: '泉州码头，船票在此卖，消息也在此卖。', exits: { E: 'quanzhou' } },
   seaway:     { id: 'seaway',     domain: 'donghai', name: '海路',    desc: '茫茫大海，商船往来。有风暴也有海盗。', exits: { E: 'pier', W: 'taohuadao' } },
 
   // —— 北荒 7 ——
   yanmen:     { id: 'yanmen',     domain: 'beihuang', name: '雁门关',  desc: '长城尽头，出关便是北荒。守军严密盘查。', exits: { S: 'luoyang', N: 'tiezhang' } },
-  tiezhang:   { id: 'tiezhang',   domain: 'beihuang', name: '铁掌峰',  desc: '铁掌帮帮主裘千仞的地盘。掌风凛冽，草木低伏。', exits: { S: 'yanmen', E: 'changbai' } },
-  murong:     { id: 'murong',     domain: 'beihuang', name: '慕容旧宅',desc: '破败的王府，慕容复祖居。还留着复燕的旗帜。', exits: { W: 'yanmen' } },
+  tiezhang:   { id: 'tiezhang',   domain: 'beihuang', name: '铁掌峰',  desc: '铁掌帮帮主的地盘。掌风凛冽，草木低伏。', exits: { S: 'yanmen', E: 'changbai' } },
+  murong:     { id: 'murong',     domain: 'beihuang', name: '慕容旧宅',desc: '破败的王府，慕容家祖居。还留着复国的旗帜。', exits: { W: 'yanmen' } },
   changbai:   { id: 'changbai',   domain: 'beihuang', name: '长白山',  desc: '冰封千里，有异兽出没。', exits: { W: 'tiezhang' } },
   snowfield:  { id: 'snowfield',  domain: 'beihuang', name: '雪原',    desc: '白茫茫一片，容易迷路。', exits: { E: 'changbai' } },
   tiezhang_fengduo:{id:'tiezhang_fengduo',domain:'beihuang', name:'铁掌帮分舵', desc:'铁掌帮在雁门关外的分舵。', exits:{S:'yanmen'} },
@@ -87,15 +89,15 @@ const FACTIONS = {
   wudu:      { id: 'wudu',      name: '五毒',     domain: 'nanjiang',  color: '#80b080' },
   duanshi:   { id: 'duanshi',   name: '段氏',     domain: 'nanjiang',  color: '#a0b0d0' },
   // 东海
-  taohua:    { id: 'taohua',    name: '桃花岛',   domain: 'donghai',   color: '#f0a0c0' },
-  haidao:    { id: 'haidao',    name: '海盗',     domain: 'donghai',   color: '#666666' },
+  kongtong:  { id: 'kongtong',  name: '崆峒',     domain: 'donghai',   color: '#f0a0c0' },
+  caobang:   { id: 'caobang',   name: '漕帮',     domain: 'donghai',   color: '#666666' },
   salt:      { id: 'salt',      name: '盐帮',     domain: 'donghai',   color: '#c0c0c0' },
   // 北荒
   tiezhang:  { id: 'tiezhang',  name: '铁掌帮',   domain: 'beihuang',  color: '#b08050' },
   murong:    { id: 'murong',    name: '慕容',     domain: 'beihuang',  color: '#b0b0d0' },
   // 暗层
   qinglong:  { id: 'qinglong',  name: '青龙会',   domain: 'ancheng',   color: '#404040' },
-  qianjin:   { id: 'qianjin',   name: '金钱帮',   domain: 'ancheng',   color: '#d4c040' },
+  bailian:   { id: 'bailian',   name: '白莲教',   domain: 'ancheng',   color: '#d4c040' },
   nan_gong:  { id: 'nan_gong',  name: '南宫',     domain: 'ancheng',   color: '#a080d0' },
 };
 
@@ -115,74 +117,22 @@ const COUNTER = {
 };
 const COUNTER_NAMES = { gang: '刚猛', qiao: '灵巧', nei: '内功' };
 
-// ===== 28 招式 + 12 绝学 =====
-const MOVES = {
-  // 基础招式（武馆可学）
-  mp01: { key:'mp01', name:'直拳',   type:'拳脚',   counter:'gang', damage:[3,5], nei_cost:0,  learn_cost:5,  faction:null, desc:'沉肩坠肘，一记直拳。' },
-  mp02: { key:'mp02', name:'劈砍',   type:'兵器',   counter:'gang', damage:[4,6], nei_cost:0,  learn_cost:5,  faction:null, desc:'双手握剑，自上而下劈出。' },
-  mp03: { key:'mp03', name:'吐纳',   type:'内功',   counter:'nei',  damage:[0,0], nei_cost:0,  learn_cost:5,  faction:null, heal:5,  desc:'调气回元，内力恢复。' },
-  mp04: { key:'mp04', name:'疾步',   type:'轻功',   counter:'qiao', damage:[0,0], nei_cost:2,  learn_cost:5,  faction:null, first: true, desc:'下回合先手。' },
+// MOVES 已移至 moves_data.js —— 20门派×30招 + 4通用 = 604招
 
-  // 少林
-  shaolin_l: { key:'shaolin_l', name:'罗汉拳',  type:'拳脚', counter:'gang', damage:[6,9], nei_cost:3, learn_cost:0, faction:'shaolin', req_rep:20 },
-  shaolin_h: { key:'shaolin_h', name:'铁头功',  type:'拳脚', counter:'gang', damage:[5,7], nei_cost:2, learn_cost:0, faction:'shaolin', req_rep:40 },
-  // 武当
-  wudang_l:  { key:'wudang_l',  name:'太极拳',  type:'拳脚', counter:'nei',  damage:[5,8], nei_cost:4, learn_cost:0, faction:'wudang',  req_rep:20, heal:3 },
-  wudang_h:  { key:'wudang_h',  name:'太极剑',  type:'兵器', counter:'nei',  damage:[6,8], nei_cost:4, learn_cost:0, faction:'wudang',  req_rep:40 },
-  // 丐帮
-  gaibang_l: { key:'gaibang_l', name:'丐帮棍',  type:'兵器', counter:'qiao', damage:[7,10], nei_cost:4, learn_cost:0, faction:'gaibang', req_rep:40 },
-  gaibang_h: { key:'gaibang_h', name:'降龙掌',  type:'拳脚', counter:'gang', damage:[8,12], nei_cost:5, learn_cost:0, faction:'gaibang', req_rep:60 },
-  // 华山
-  huashan_l: { key:'huashan_l', name:'华山剑',  type:'兵器', counter:'qiao', damage:[6,9], nei_cost:3, learn_cost:0, faction:'huashan', req_rep:20 },
-  huashan_h: { key:'huashan_h', name:'紫霞功',  type:'内功', counter:'nei',  damage:[0,0], nei_cost:3, learn_cost:0, faction:'huashan', req_rep:60, max_nei:10 },
-  // 峨眉
-  emei_l:    { key:'emei_l',    name:'峨眉刺',  type:'兵器', counter:'qiao', damage:[5,8], nei_cost:3, learn_cost:0, faction:'emei',    req_rep:20, poison:[2,2] },
-  emei_h:    { key:'emei_h',    name:'金顶掌',  type:'拳脚', counter:'gang', damage:[6,9], nei_cost:4, learn_cost:0, faction:'emei',    req_rep:60, poison:[3,3] },
-  // 明教
-  mingjiao_l:{ key:'mingjiao_l',name:'圣火拳',  type:'拳脚', counter:'gang', damage:[7,10], nei_cost:4, learn_cost:0, faction:'mingjiao', req_rep:40 },
-  mingjiao_h:{ key:'mingjiao_h',name:'乾坤大挪移', type:'内功', counter:'nei', damage:[4,8], nei_cost:8, learn_cost:0, faction:'mingjiao', req_rep:80, reflect:true },
-  // 天山
-  tianshan_l:{ key:'tianshan_l',name:'天山折梅手', type:'拳脚', counter:'qiao', damage:[9,13], nei_cost:5, learn_cost:0, faction:'tianshan', req_rep:60 },
-  tianshan_h:{ key:'tianshan_h',name:'八荒六合功', type:'内功', counter:'nei',  damage:[0,0], nei_cost:3, learn_cost:0, faction:'tianshan', req_rep:80, max_nei:30 },
-  // 铁掌帮
-  tiezhang_l:{ key:'tiezhang_l',name:'铁掌',    type:'拳脚', counter:'gang', damage:[10,14], nei_cost:5, learn_cost:0, faction:'tiezhang', req_rep:60 },
-  // 慕容
-  murong_l:  { key:'murong_l',  name:'斗转星移',type:'内功', counter:'nei',  damage:[8,11], nei_cost:7, learn_cost:0, faction:'murong', req_rep:80, reflect:true },
-  // 唐门
-  tangmen_l: { key:'tangmen_l', name:'唐门暗器',type:'兵器', counter:'qiao', damage:[6,10], nei_cost:3, learn_cost:0, faction:'tangmen', req_rep:40, first:true },
-  // 五毒
-  wudu_l:    { key:'wudu_l',    name:'五毒掌',  type:'拳脚', counter:'gang', damage:[5,8], nei_cost:4, learn_cost:0, faction:'wudu',    req_rep:40, poison:[3,5] },
-  // 段氏
-  duanshi_l: { key:'duanshi_l', name:'一阳指',  type:'内功', counter:'nei',  damage:[8,12], nei_cost:6, learn_cost:0, faction:'duanshi', req_rep:60 },
-
-  // 绝学（每势力 1，核心声望 280+ 解锁）
-  jx_syl: { key:'jx_syl', name:'易筋经',    type:'被动', faction:'shaolin',  req_rep:280, desc:'HP 上限 +20', hp_bonus:20 },
-  jx_tjj: { key:'jx_tjj', name:'太极剑',    type:'被动', faction:'wudang',   req_rep:280, desc:'内功招式伤害 +3', nei_damage_bonus:3 },
-  jx_xlzp:{ key:'jx_xlzp',name:'降龙十八掌',type:'拳脚', counter:'gang', damage:[15,20], nei_cost:10, faction:'gaibang', req_rep:280 },
-  jx_dgjj:{ key:'jx_dgjj',name:'独孤九剑', type:'被动', faction:'huashan',  req_rep:280, desc:'兵器招式必中', weapon_hit:true },
-  jx_jdmc:{ key:'jx_jdmc',name:'金顶绵掌', type:'被动', faction:'emei',     req_rep:280, desc:'中毒效果翻倍', poison_double:true },
-  jx_lmsc:{ key:'jx_lmsc',name:'六脉神剑', type:'内功', counter:'nei',  damage:[12,18], nei_cost:8, faction:'duanshi', req_rep:280 },
-  jx_bayhz:{ key:'jx_bayhz',name:'暴雨梨花针',type:'兵器', counter:'qiao', damage:[8,12], x2:true, nei_cost:6, faction:'tangmen', req_rep:280 },
-  jx_wgfx:{ key:'jx_wgfx',name:'万蛊噬心', type:'拳脚', counter:'gang', damage:[3,5], poison:[3,7], nei_cost:5, faction:'wudu', req_rep:280 },
-  jx_shlfa:{ key:'jx_shlfa',name:'圣火令法',type:'被动', faction:'mingjiao', req_rep:280, desc:'反弹 +5', reflect_bonus:5 },
-  jx_bhlhg:{ key:'jx_bhlhg',name:'八荒六合功·真', type:'被动', faction:'tianshan', req_rep:280, desc:'内力上限 +50', max_nei:50 },
-  jx_tzhz:{ key:'jx_tzhz',name:'铁掌·裂',  type:'拳脚', counter:'gang', damage:[14,22], nei_cost:8, faction:'tiezhang', req_rep:280 },
-  jx_dzxy:{ key:'jx_dzxy',name:'斗转·真',  type:'内功', counter:'nei',  damage:[15,25], nei_cost:12, faction:'murong', req_rep:280, reflect:true },
-};
-
-// ===== 物价基准 =====
+// ===== 物价基准（运行时商品以 DB 表为准：medicines/life_goods/materials/equipments；此处为 seed 兜底源）=====
 const ITEMS = {
   // 消耗品
   mantou:  { key:'mantou',  name:'馒头',  type:'food',  price:0.1,  heal:5 },
   shaoji:  { key:'shaoji',  name:'烧鸡',  type:'food',  price:0.5,  heal:20 },
-  jincang: { key:'jincang', name:'金疮药',type:'heal',  price:1.0,  heal:30 },
-  huiqi:   { key:'huiqi',   name:'回气散',type:'nei',  price:2.0,  nei:20 },
-  jiedu:   { key:'jiedu',   name:'解毒散',type:'antidote', price:1.5 },
-  // 基础武器
+  jincang_yao: { key:'jincang_yao', name:'金疮药', type:'heal',  price:1.0,  heal:30 },
+  hui_qi_san:  { key:'hui_qi_san',  name:'回气散', type:'nei',   price:2.0,  nei:20 },
+  jie_du_san:  { key:'jie_du_san',  name:'解毒散', type:'antidote', price:1.5 },
+  // 基础武器（属性版在 equipments 表）
   tiejian: { key:'tiejian', name:'铁剑',  type:'weapon', price:5,  damage:'3-5', counter:'gang' },
-  jinggang:{ key:'jinggang',name:'精钢剑',type:'weapon', price:20, damage:'5-7', counter:'qiao', req_fame:100 },
+  jinggang_jian:{ key:'jinggang_jian',name:'精钢剑',type:'weapon', price:20, damage:'5-7', counter:'qiao', req_fame:100 },
   buyu:    { key:'buyu',    name:'布衣',  type:'armor', price:2,  defense:'1-2' },
   pijia:   { key:'pijia',   name:'皮甲',  type:'armor', price:10, defense:'3-5', req_fame:50 },
+  qinggang_jian: { key:'qinggang_jian', name:'青钢剑', type:'weapon', price:200, damage:'8-12', counter:'qiao', req_fame:100, desc:'精钢铸造的青钢短剑。' },
   // 黑市违禁品
   duyao:   { key:'duyao',   name:'毒药',  type:'contraband', price:15 },
   miyan:   { key:'miyan',   name:'迷烟',  type:'contraband', price:20 },
@@ -197,14 +147,14 @@ const ITEMS = {
 const SHOPS = {
   // 青石镇
   shop_qingshi_grocery:  { id:'shop_qingshi_grocery',  location:'qingshi',    name:'杂货铺', price_rate:1.0, items:['mantou','shaoji','siyan','herb'] },
-  shop_qingshi_med:      { id:'shop_qingshi_med',      location:'qingshi',    name:'药铺',   price_rate:1.0, items:['jincang','huiqi','jiedu'] },
-  shop_qingshi_iron:     { id:'shop_qingshi_iron',     location:'qingshi',    name:'铁匠铺', price_rate:1.0, items:['tiejian','buyu'] },
+  shop_qingshi_med:      { id:'shop_qingshi_med',      location:'qingshi',    name:'药铺',   price_rate:1.0, items:['jincang_yao','hui_qi_san','jie_du_san'] },
+  shop_qingshi_iron:     { id:'shop_qingshi_iron',     location:'qingshi',    name:'铁匠铺', price_rate:1.0, items:['tiejian','buyi'] },
   shop_qingshi_wuguan:   { id:'shop_qingshi_wuguan',   location:'qingshi',    name:'武馆',   price_rate:1.0, items:['mp01','mp02','mp03','mp04'], teach:true },
   shop_qingshi_innt:     { id:'shop_qingshi_innt',     location:'qingshi',    name:'客栈',   price_rate:1.0, items:[], inn:true },
   shop_qingshi_teahouse: { id:'shop_qingshi_teahouse', location:'qingshi',    name:'茶馆',   price_rate:1.0, items:[], teahouse:true },
   // 洛阳
   shop_luoyang_auction:  { id:'shop_luoyang_auction',  location:'luoyang',    name:'拍卖行', price_rate:1.0, auction:true },
-  shop_luoyang_bingqi:   { id:'shop_luoyang_bingqi',   location:'luoyang',    name:'兵器铺', price_rate:1.2, items:['jinggang','pijia'] },
+  shop_luoyang_bingqi:   { id:'shop_luoyang_bingqi',   location:'luoyang',    name:'兵器铺', price_rate:1.2, items:['jinggang_jian','pijia','qinggang_jian'] },
   shop_luoyang_cloth:    { id:'shop_luoyang_cloth',    location:'luoyang',    name:'绸缎庄', price_rate:1.2, items:['silk'] },
   shop_luoyang_innt:     { id:'shop_luoyang_innt',     location:'luoyang',    name:'悦来客栈', price_rate:1.2, items:[], inn:true },
   shop_luoyang_gambling: { id:'shop_luoyang_gambling', location:'luoyang',    name:'赌坊',   price_rate:1.0, gambling:true },
@@ -215,12 +165,34 @@ const SHOPS = {
   // 西域
   shop_dunhuang:         { id:'shop_dunhuang',         location:'dunhuang',   name:'西域集市', price_rate:1.3, items:['mantou','shaoji','tiejian','herb'] },
   // 南疆
-  shop_chengdu:         { id:'shop_chengdu',         location:'chengdu',   name:'蜀地药铺', price_rate:0.9, items:['jiedu','herb','jincang'] },
+  shop_chengdu:         { id:'shop_chengdu',         location:'chengdu',   name:'蜀地药铺', price_rate:0.9, items:['jie_du_san','herb','jincang_yao'] },
   shop_tangmen:          { id:'shop_tangmen',          location:'tangmen',    name:'唐门暗器铺', price_rate:1.1, items:['duyao','miyan'] },
   // 东海
   shop_quanzhou:         { id:'shop_quanzhou',         location:'quanzhou',   name:'泉州海港铺', price_rate:1.0, items:['mantou','shaoji','silk','siyan'] },
   // 北荒
   shop_beihuang:         { id:'shop_beihuang',         location:'beihuang_town', name:'边关集市', price_rate:1.4, items:['buyu','pijia','herb'] },
+
+  // ===== 门派武馆（teach:true，教 s1 三招：真实招式 key，与 moves 表一致）=====
+  shop_shaolin_wuguan:   { id:'shop_shaolin_wuguan',   location:'shaolin',      name:'少林武馆',   price_rate:1.0, items:['shaolin_s1_l1','shaolin_s1_l4','shaolin_s1_l3'], teach:true },
+  shop_wudang_wuguan:    { id:'shop_wudang_wuguan',    location:'wudang',       name:'武当紫霄宫', price_rate:1.0, items:['wudang_s1_l1','wudang_s1_l3','wudang_s1_l4'], teach:true },
+  shop_gaibang_wuguan:   { id:'shop_gaibang_wuguan',   location:'gaibang',      name:'丐帮分舵',   price_rate:1.0, items:['gaibang_s1_l1','gaibang_s1_l4','gaibang_s1_l3'], teach:true },
+  shop_huashan_wuguan:   { id:'shop_huashan_wuguan',   location:'huashan',      name:'华山剑派',   price_rate:1.0, items:['huashan_s1_l1','huashan_s1_l4','huashan_s1_l2'], teach:true },
+  shop_emei_wuguan:      { id:'shop_emei_wuguan',      location:'emei',         name:'峨眉金顶',   price_rate:1.0, items:['emei_s1_l1','emei_s1_l4','emei_s1_l2'], teach:true },
+  shop_mingjiao_wuguan:  { id:'shop_mingjiao_wuguan',  location:'guangmingding',name:'明教圣火峰', price_rate:1.0, items:['mingjiao_s1_l1','mingjiao_s1_l4','mingjiao_s1_l2'], teach:true },
+  shop_tianshan_wuguan:  { id:'shop_tianshan_wuguan',  location:'tianshan_peak',name:'天山派',     price_rate:1.0, items:['tianshan_s1_l1','tianshan_s1_l4','tianshan_s1_l2'], teach:true },
+  shop_kunlun_wuguan:    { id:'shop_kunlun_wuguan',    location:'kunlun',       name:'昆仑派',     price_rate:1.0, items:['kunlun_s1_l1','kunlun_s1_l4','kunlun_s1_l2'], teach:true },
+  shop_diancang_wuguan:  { id:'shop_diancang_wuguan',  location:'diancang',     name:'点苍山',     price_rate:1.0, items:['diancang_s1_l1','diancang_s1_l4','diancang_s1_l2'], teach:true },
+  shop_tangmen_wuguan:   { id:'shop_tangmen_wuguan',   location:'tangmen',      name:'唐门堡',     price_rate:1.0, items:['tangmen_s1_l1','tangmen_s1_l4','tangmen_s1_l2'], teach:true },
+  shop_wudu_wuguan:      { id:'shop_wudu_wuguan',      location:'wudu',         name:'五毒谷',     price_rate:1.0, items:['wudu_s1_l1','wudu_s1_l4','wudu_s1_l2'], teach:true },
+  shop_duanshi_wuguan:   { id:'shop_duanshi_wuguan',   location:'dali',         name:'大理国武馆', price_rate:1.0, items:['duanshi_s1_l1','duanshi_s1_l4','duanshi_s1_l2'], teach:true },
+  shop_kongtong_wuguan:  { id:'shop_kongtong_wuguan',  location:'taohuadao',    name:'崆峒岛',     price_rate:1.0, items:['kongtong_s1_l1','kongtong_s1_l4','kongtong_s1_l2'], teach:true },
+  shop_caobang_wuguan:   { id:'shop_caobang_wuguan',   location:'haidao',       name:'漕帮码头',   price_rate:1.0, items:['caobang_s1_l1','caobang_s1_l4','caobang_s1_l2'], teach:true },
+  shop_salt_wuguan:      { id:'shop_salt_wuguan',      location:'quanzhou',     name:'盐帮武馆',   price_rate:1.0, items:['salt_s1_l1','salt_s1_l4','salt_s1_l2'], teach:true },
+  shop_tiezhang_wuguan:  { id:'shop_tiezhang_wuguan',  location:'tiezhang',     name:'铁掌峰',     price_rate:1.0, items:['tiezhang_s1_l1','tiezhang_s1_l4','tiezhang_s1_l2'], teach:true },
+  shop_murong_wuguan:    { id:'shop_murong_wuguan',    location:'murong',       name:'慕容旧宅',   price_rate:1.0, items:['murong_s1_l1','murong_s1_l4','murong_s1_l2'], teach:true },
+  shop_qinglong_wuguan:  { id:'shop_qinglong_wuguan',  location:'luoyang',      name:'青龙会密室', price_rate:1.0, items:['qinglong_s1_l1','qinglong_s1_l4','qinglong_s1_l2'], teach:true },
+  shop_bailian_wuguan:   { id:'shop_bailian_wuguan',   location:'yanyang',      name:'白莲教密室', price_rate:1.0, items:['bailian_s1_l1','bailian_s1_l4','bailian_s1_l2'], teach:true },
+  shop_nangong_wuguan:   { id:'shop_nangong_wuguan',   location:'xiangyang',    name:'南宫家祠',   price_rate:1.0, items:['nan_gong_s1_l1','nan_gong_s1_l4','nan_gong_s1_l2'], teach:true },
 };
 
 // ===== 战斗描述库 =====
@@ -229,17 +201,6 @@ const MOVE_DESC = {
   mp02: ['你双手握剑，自上而下劈出一道寒光。', '你斜身劈砍，剑锋划向对方腰肋。'],
   mp03: ['你闭目吐纳，气沉丹田，内力缓缓回复。', '你双掌合十，体内气息运转了一个周天。'],
   mp04: ['你脚下疾步，瞬间拉开了距离，下回合你先出手。', '你身形一晃，退到对方视线死角。'],
-  shaolin_l: ['你拳出如罗汉降世，刚猛无俦。', '你一招"罗汉伏虎"，拳风扑面。'],
-  wudang_l:  ['你以柔克刚，太极拳画了个圆。', '你一招"揽雀尾"，将对方的攻势引到一旁。'],
-  gaibang_l: ['你棒出如狗吠，丐帮棍法诡异难测。', '你一招"棒打落水狗"，下盘扫去。'],
-  huashan_l: ['你剑出凌厉，华山剑法锋锐无双。', '你一招"夺命连环三仙剑"，三剑齐出。'],
-  emei_l:    ['你峨眉刺轻巧灵动，直指对方要害。', '你一招"飞蛾扑火"，刺出三朵银花。'],
-  mingjiao_l:['你圣火拳带着烈焰，刚猛霸道。', '你一招"焚天掌"，掌风炙热。'],
-  tangmen_l: ['你袖中飞出几枚暗器，破空而去。', '你手指一弹，一枚铁针直射对方咽喉。'],
-  wudu_l:    ['你手掌泛绿，五毒掌带着瘴气。', '你一招"蝎尾钳"，双掌毒雾弥漫。'],
-  tianshan_l:['你天山折梅手，进退之间自有章法。', '你一招"六阳掌"，寒气逼人。'],
-  tiezhang_l:['你掌风刚猛，铁掌轰出如天雷。', '你一招"横推八千丈"，巨力无比。'],
-  duanshi_l: ['你指尖凝聚内力，一阳指出手。', '你左手拇指翘起，一指透点穴门。'],
 };
 
 const DAMAGE_DESC = {
@@ -259,11 +220,11 @@ const NPC_DESC = {
 
 // ===== 跑商价差（每个域的价格倍率）=====
 const TRADE_MULT = {
-  zhongzhou: { silk:1.0, herb:1.0, siyan:1.0 },
-  xiyu:      { silk:1.5, herb:0.7, siyan:1.3 },
-  nanjiang:  { silk:1.3, herb:0.6, siyan:1.1 },
-  donghai:   { silk:0.8, herb:1.2, siyan:0.7 },
-  beihuang:  { silk:1.6, herb:1.5, siyan:1.4 },
+  zhongzhou: { silk:1.0, herb:1.0, siyan:1.0, ciqi:1.0, cha_ye:1.0, xiang_liao:1.0 },
+  xiyu:      { silk:1.5, herb:0.7, siyan:1.3, ciqi:1.4, cha_ye:0.9, xiang_liao:0.8 },
+  nanjiang:  { silk:1.3, herb:0.6, siyan:1.1, ciqi:0.8, cha_ye:1.5, xiang_liao:1.2 },
+  donghai:   { silk:0.8, herb:1.2, siyan:0.7, ciqi:1.1, cha_ye:1.3, xiang_liao:1.6 },
+  beihuang:  { silk:1.6, herb:1.5, siyan:1.4, ciqi:1.0, cha_ye:1.2, xiang_liao:1.0 },
 };
 
 module.exports = {

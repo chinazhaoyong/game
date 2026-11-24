@@ -2,8 +2,9 @@
 const crypto = require('node:crypto');
 const WebSocket = require('ws');
 const { db } = require('./db');
+const RPG = require('./rpg_system');
 const {
-  DOMAINS, NODES, FACTIONS, MOVES, ITEMS, SHOPS,
+  DOMAINS, NODES, FACTIONS, ITEMS,
   REP_TIERS, REP_NAMES, FAME_TIERS, FAME_NAMES,
   COUNTER, COUNTER_NAMES, MOVE_DESC, DAMAGE_DESC, NPC_DESC, TRADE_MULT,
 } = require('./content');
@@ -14,6 +15,19 @@ const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
 const rand = (a, b) => Math.floor(Math.random() * (b - a + 1)) + a;
 const choice = (arr) => arr[Math.floor(Math.random() * arr.length)];
 const range = (r) => Array.isArray(r) ? rand(r[0], r[1]) : r;
+
+// —— 物品解析：先查 ITEMS，再查 faction_items，都没有就显示 key ——
+const _factionItemsCache = new Map();
+db.prepare('SELECT item_key, name, type, damage, defense FROM faction_items').all()
+  .forEach(r => _factionItemsCache.set(r.item_key, r));
+function resolveItem(key) {
+  if (ITEMS[key]) return ITEMS[key];
+  const rpg = RPG.itemOf(key);
+  if (rpg) return { key, name: rpg.name, type: rpg.src || rpg.kind, damage: rpg.damage, defense: rpg.defense, price: rpg.price, rpg: true };
+  const fi = _factionItemsCache.get(key);
+  if (fi) return { key, name: fi.name, type: fi.type, damage: fi.damage, defense: fi.defense, faction_weapon: true };
+  return { key, name: key, type: 'unknown' };
+}
 
 // —— 名望称号 ——
 function fameTitle(v) {
@@ -68,27 +82,59 @@ function createGame() {
     if (!p) return null;
     p.id = Number(p.id);
     p.hp = Number(p.hp) || 50;
-    p.max_hp = Number(p.max_hp) || 50;
     p.nei = Number(p.nei) || 30;
-    p.max_nei = Number(p.max_nei) || 30;
     p.silver = Number(p.silver) || 0;
     p.fame = Number(p.fame) || 0;
     p.infamy = Number(p.infamy) || 0;
     p.location_id = p.location_id || 'qingshi';
     p.domain_id = p.domain_id || 'zhongzhou';
     p.faction_rep = JSON.parse(p.faction_rep || '{}');
+    p.rank = p.rank || (p.faction_id ? 'servant' : null);
+    p.contrib = Number(p.contrib) || 0;
+    p.joined_at = p.joined_at ? Number(p.joined_at) : null;
+    p.rank_at = p.rank_at ? Number(p.rank_at) : null;
+    // RPG 属性（8 维）+ 等级/经验/熟练/加点
+    p.level = Number(p.level) || 1;
+    p.exp = Number(p.exp) || 0;
+    p.gen = Number(p.gen) || 10; p.str = Number(p.str) || 10; p.con = Number(p.con) || 10;
+    p.agi = Number(p.agi) || 10; p.luck = Number(p.luck) || 10; p.cha = Number(p.cha) || 10;
+    p.wit = Number(p.wit) || 10; p.fortune = Number(p.fortune) || 10;
+    p.dummy_prof = Number(p.dummy_prof) || 0;
+    p.free_points = Number(p.free_points) || 0;
+    // 派生属性重算 max_hp/max_nei（含装备/等级加成）
+    const d = RPG.derivedStats(p);
+    p.max_hp = d.max_hp; p.max_nei = d.max_nei;
+    p.hp = Math.min(p.hp, p.max_hp);
+    p.nei = Math.min(p.nei, p.max_nei);
+    p.combat_style = p.combat_style || 'none';
     return p;
   }
 
   function savePlayer(p) {
     db.prepare(`UPDATE players SET
       location_id=?, domain_id=?, hp=?, max_hp=?, nei=?, max_nei=?,
-      silver=?, fame=?, infamy=?, title=?, faction_id=?, faction_rep=?
+      silver=?, fame=?, infamy=?, title=?, faction_id=?, faction_rep=?,
+      rank=?, contrib=?, joined_at=?, rank_at=?,
+      level=?, exp=?, gen=?, str=?, con=?, agi=?, luck=?, cha=?, wit=?, fortune=?,
+      dummy_prof=?, free_points=?
       WHERE id=?`).run(
       p.location_id, p.domain_id, p.hp, p.max_hp, p.nei, p.max_nei,
       p.silver, p.fame, p.infamy, p.title || fameTitle(p.fame), p.faction_id || null,
-      JSON.stringify(p.faction_rep), p.id);
+      JSON.stringify(p.faction_rep),
+      p.rank || 'servant', p.contrib || 0, p.joined_at || null, p.rank_at || null,
+      p.level || 1, p.exp || 0, p.gen||10, p.str||10, p.con||10, p.agi||10,
+      p.luck||10, p.cha||10, p.wit||10, p.fortune||10,
+      p.dummy_prof||0, p.free_points||0,
+      p.id);
   }
+
+  // 弟子等级显示名
+  const RANK_NAMES = {
+    servant:'杂役弟子', trainee:'见习弟子', outer:'外门弟子',
+    inner:'内门弟子', inner_high:'内门高层',
+    core:'核心弟子', privileged:'亲传弟子', chief:'首席弟子',
+  };
+  function getRankName(rank) { return RANK_NAMES[rank] || rank || '杂役弟子'; }
 
   // —— 完成任务（给奖励 + 标记 done）——
   function completeQuest(ws, p, q) {
@@ -98,6 +144,11 @@ function createGame() {
     if (q.faction) {
       const cur = (p.faction_rep[q.faction] || 0);
       p.faction_rep[q.faction] = cur + (q.reward_fame || 0);
+      // 门派任务给门派贡献
+      if (p.faction_id === q.faction) {
+        const contribGain = q.risk === 'heroic' ? 10 : q.risk === 'hard' ? 5 : 3;
+        p.contrib = (p.contrib || 0) + contribGain;
+      }
     }
     db.prepare('UPDATE player_quests SET status=?, completed_at=? WHERE player_id=? AND quest_key=?').run('done', now(), p.id, q.key);
     savePlayer(p);
@@ -135,25 +186,55 @@ function createGame() {
     }));
     // 在场 NPC
     const npcsHere = db.prepare('SELECT id,name,role FROM npc_core WHERE location_id=?').all(p.location_id);
-    // 任务、装备：简化，暂时返回空（前端面板自己渲染）
-    const quests = [];
-    const items = [];
+    // 已学武功（DB moves）
+    const moves = db.prepare('SELECT move_key FROM player_moves WHERE player_id=?').all(p.id)
+      .map(r => { const m = RPG.moveOf(r.move_key); return { key: r.move_key, name: m?.name || r.move_key, desc: m?.desc || '', counter: m?.counter || '', damage: m?.damage || [0,0], nei_cost: m?.nei_cost || 0 }; });
+    // 当前任务（进行中）
+    const activeQuests = db.prepare(`
+      SELECT q.key, q.title, q.type, q.desc as description, q.reward_silver, q.reward_fame, q.reward_infamy, q.faction, q.reward_exp,
+             pq.status as pq_status
+      FROM quests q JOIN player_quests pq ON pq.quest_key=q.key
+      WHERE pq.player_id=? AND pq.status IN ('active','accepted')
+    `).all(p.id);
+    // 背包：消耗品（inventory）+ 装备（player_items 未装备）
+    const invRows = db.prepare('SELECT item_key, count FROM inventory WHERE player_id=?').all(p.id)
+      .map(r => { const it = RPG.itemOf(r.item_key); return { key: r.item_key, name: it?.name || r.item_key, count: r.count, kind: it?.src || 'goods' }; });
+    const equipInv = db.prepare('SELECT id, item_key, name, slot, atk, def, rarity, req_level, equipped FROM player_items WHERE player_id=?').all(p.id)
+      .map(r => ({ id: r.id, key: r.item_key, name: r.name, slot: r.slot, slotName: RPG.SLOT_NAMES[r.slot], atk: r.atk, def: r.def, rarity: r.rarity, reqLevel: r.req_level || 1, equipped: !!r.equipped, kind: 'equipment' }));
     // 势力声望
     const rep = Object.entries(p.faction_rep || {}).map(([fid, v]) => {
       const t = repTier(v);
       const next = REP_TIERS[t.tier + 1];
       return { faction: fid, name: (FACTIONS[fid] || {}).name || fid, value: v, tier: t.name, nextAt: next || null, pct: next ? Math.round((v / next) * 100) : 100 };
     });
+    // 派生属性 + 已装备
+    const d = RPG.derivedStats(p);
+    const eqMap = RPG.equippedMap(p);
+    const equipped = [];
+    for (const s of RPG.SLOT_KEYS) {
+      if (eqMap[s]) {
+        if (Array.isArray(eqMap[s])) for (const it of eqMap[s]) equipped.push({ slot: s, slotName: RPG.SLOT_NAMES[s], key: it.item_key, name: it.name, atk: it.atk, def: it.def, rarity: it.rarity });
+        else equipped.push({ slot: s, slotName: RPG.SLOT_NAMES[s], key: eqMap[s].item_key, name: eqMap[s].name, atk: eqMap[s].atk, def: eqMap[s].def, rarity: eqMap[s].rarity });
+      }
+    }
+    // 此地野怪
+    const monstersHere = RPG.monstersAt(p.location_id).map(m => ({ key: m.key, name: m.name, level: m.level, hp: m.hp, atk: m.atk, exp: m.exp, alive: !!m.alive }));
 
     return {
       id: p.id, name: p.name,
       location: p.location_id, domain: p.domain_id,
       roomName: node.name, domainName: DOMAINS[node.domain].name,
-      desc: node.desc, exits, npcsHere,
+      desc: node.desc, exits, npcsHere, monstersHere,
       hp: p.hp, maxHp: p.max_hp, nei: p.nei, maxNei: p.max_nei,
       silver: p.silver, fame: p.fame, fameNext: fameNext(p.fame), fameTier: fameTitle(p.fame),
       infamy: p.infamy, title: p.title || fameTitle(p.fame),
-      faction: p.faction_id, rep, items, quests,
+      faction: p.faction_id, rep, items: invRows, equipment: equipInv, equipped,
+      quests: activeQuests, moves,
+      // RPG 扩展
+      level: p.level, exp: p.exp, expNeed: RPG.expNeed(p.level),
+      gen: p.gen, str: p.str, con: p.con, agi: p.agi, luck: p.luck, cha: p.cha, wit: p.wit, fortune: p.fortune,
+      dummyProf: p.dummy_prof, freePoints: p.free_points,
+      derived: { atk: d.atk, def: d.def, crit: Math.round(d.crit * 100), dodge: Math.round(d.dodge * 100), hit: Math.round(d.hit * 100), special: d.special },
     };
   }
 
@@ -326,6 +407,22 @@ function createGame() {
     if (/^(看看?|查一下)?(我?(的)?(背包|行囊|包袱|口袋|物品|东西))(里?(有|装)(什么|啥|哪些))?\s*[?？]?$/.test(t)) return '物品';
     if (/^(背包|行囊|包袱|口袋|物品|东西)(里?|里面)?(有|装)(什么|啥|哪些)\s*[?？]?$/.test(t)) return '物品';
     if (/^(看看?|查一下)?(我?(现在)?有(多少|几)钱|银两(多少|怎么样)|身上有多少钱|我身上(有)?多少(钱|银两))\s*[?？]?$/.test(t)) return '物品';
+    // —— 人物属性 ——
+    if (/^(看看?|查一下)?(我?(的)?(人物|角色|属性|状态|面板|此身|人物属性))(怎么样|是什么|多少)?\s*[?？]?$/.test(t)) return '人物属性';
+    if (/^(人物属性|角色属性|我的属性|属性面板|此身)\s*[?？]?$/.test(t)) return '人物属性';
+    // —— 装备6槽 ——
+    if (/^(穿|装备|佩戴|戴上|拿上)\s*(.+)$/.test(t)) { let m = t.match(/^(穿|装备|佩戴|戴上|拿上)\s*(.+)$/); return '穿 ' + m[2]; }
+    if (/^(脱|卸|摘下|取下)\s*(头戴|手拿|脚踏|身穿|护腕|配饰|head|hand|feet|body|wrist|accessory)\s*$/i.test(t)) { let m = t.match(/^(脱|卸|摘下|取下)\s*(.+)\s*$/); return '脱 ' + m[2]; }
+    // —— 采集 ——
+    if (/^(采集|采药|挖矿|伐木|捕鱼|采)\s*[?？]?$/.test(t)) return '采集';
+    // —— 制造 ——
+    if (/^(炼药|锻造|烹饪|缝纫|制造|炼制)\s*(.+)?$/.test(t)) { let m = t.match(/^(炼药|锻造|烹饪|缝纫|制造|炼制)\s*(.+)?$/); return m[2] ? '制造 ' + m[2] : '制造'; }
+    // —— 木人桩/练功 ——
+    if (/^(练功|练武|打木人|木人桩|练拳|练一下)\s*[?？]?$/.test(t)) return '练功';
+    // —— 加点 ——
+    if (/^(加点|分配属性|加属性)\s*$/.test(t)) return '加点';
+    if (/^加\s*(根骨|力量|体质|身法|幸运|魅力|悟性|福缘)\s+\d+\s*$/.test(t)) return t.replace(/^加\s*/, '加属性 ');
+    if (/^(加|分配)\s*(根骨|力量|体质|身法|幸运|魅力|悟性|福缘)\s*$/.test(t)) { let m = t.match(/^(加|分配)\s*(.+)$/); return '加属性 ' + m[2]; }
 
     // —— 帮派（注意：不能放"去"当触发词，否则"去少林寺"会被误当成加入门派）——
     if (/^(加入|进|拜入|投靠|想进|想加入|投奔)\s*(.+?)(派|门|会|教|帮|宗)?$/.test(t)) {
@@ -379,7 +476,7 @@ function createGame() {
   // ===== 识别商店名 → 返回 {shop, verb:'买'} 或 {shop, verb:'传闻'} 等 =====
   function matchShopByName(name, player) {
     if (!player) return null;
-    const shopsHere = Object.values(SHOPS).filter(s => s.location === player.location_id);
+    const shopsHere = RPG.shopsAt(player.location_id);
     if (!shopsHere.length) return null;
     // 精确 / 包含 匹配
     let shop = shopsHere.find(s => s.name === name || s.name.includes(name) || name.includes(s.name));
@@ -404,8 +501,8 @@ function createGame() {
     // —— 最高优先：整句里有商店名，"去 杂货铺" / "去 茶馆" / "铁匠铺" 等 ——
     // 先看 normalize 之后的完整 t（rest 部分）
     const restOrT = rest || t;
-    for (const s of Object.values(SHOPS)) {
-      if (!player || s.location !== player.location_id) continue;
+    for (const s of RPG.shopsAll()) {
+      if (!player || s.node_id !== player.location_id) continue;
       // "去 杂货铺" → verb='去', rest='杂货铺'
       // "杂货铺" → verb='杂货铺'
       if (restOrT.includes(s.name) || t === s.name) {
@@ -475,6 +572,8 @@ function createGame() {
     'who','谁','在线',
     '跑商',
     '洗恶','洗白','wash',
+    '人物属性','物品','穿','脱',
+    '采集','制造','炼制','练功','加点','加属性',
   ]);
 
   const DIR_MAP = { 北:'N', 南:'S', 东:'E', 西:'W', N:'N', S:'S', E:'E', W:'W',
@@ -500,9 +599,15 @@ function createGame() {
       }
     }
     if (here.length) lines.push(L('sys', `也在场：${here.join('、')}`));
-    // 商店
-    const shopsHere = Object.values(SHOPS).filter(s => s.location === p.location_id);
+    // 此地野怪（DB monsters alive）
+    const mons = RPG.monstersAt(p.location_id);
+    if (mons.length) lines.push(L('combat', `⚠ 此地有：${mons.map(m => `${m.name}(Lv${m.level})`).join('、')}　打 <名字> 攻击`));
+    // 商店（DB shops）
+    const shopsHere = RPG.shopsAt(p.location_id);
     if (shopsHere.length) lines.push(L('sys', `店铺：${shopsHere.map(s => s.name).join('、')}`));
+    // 采集点
+    const cn = db.prepare('SELECT * FROM collecting_nodes WHERE node_id=?').all(p.location_id);
+    if (cn.length) lines.push(L('sys', `🌿 可采集：${cn.map(c => c.skill_key).join('、')}　打 采集`));
     return lines;
   }
 
@@ -815,8 +920,87 @@ function createGame() {
       return;
     }
 
+    // —— RPG 新指令：人物属性/背包/装备/采集/制造/练功/加点 ——
+    if (verb === '人物属性') { push(ws, charPanelLines(p)); sync(ws, p); return; }
+    if (['物品', 'inventory', 'inv'].includes(verb)) { push(ws, inventoryLines(p)); sync(ws, p); return; }
+    if (verb === '穿') {
+      const res = RPG.equipItem(p, args.join('') || rest);
+      if (res.ok) { const d = RPG.derivedStats(p); p.max_hp = d.max_hp; p.max_nei = d.max_nei; }
+      pushOne(ws, res.ok ? 'faction' : 'err', res.msg); savePlayer(p); sync(ws, p); return;
+    }
+    if (verb === '脱') {
+      const res = RPG.unequipSlot(p, (args.join('') || rest).trim());
+      if (res.ok) { const d = RPG.derivedStats(p); p.max_hp = d.max_hp; p.max_nei = d.max_nei; p.hp = Math.min(p.hp, p.max_hp); }
+      pushOne(ws, res.ok ? 'faction' : 'err', res.msg); savePlayer(p); sync(ws, p); return;
+    }
+    if (verb === '采集') { RPG.collect(ws, p, push, pushOne, savePlayer, sync); return; }
+    if (verb === '制造') { RPG.craft(ws, p, args.join('') || rest, push, pushOne, savePlayer, sync); return; }
+    if (verb === '练功') { RPG.dummyPractice(ws, p, push, pushOne, savePlayer, sync); return; }
+    if (verb === '加点') {
+      if ((p.free_points || 0) <= 0) { pushOne(ws, 'dim', '没有可分配的属性点。升级后获得 3 点。'); return; }
+      pushOne(ws, 'sys', `你有 ${p.free_points} 点可分配。打：加 根骨/力量/体质/身法/幸运/魅力/悟性/福缘`);
+      return;
+    }
+    if (verb === '加属性') {
+      const raw = (args.join(' ') || rest || '').trim();
+      const m = raw.match(/^(.+?)\s*(\d*)\s*$/);
+      const attrCn = (m[1] || '').trim();
+      const attrKey = Object.keys(RPG.ATTR_NAMES).find(k => RPG.ATTR_NAMES[k] === attrCn) || attrCn;
+      if (!RPG.ATTR_NAMES[attrKey]) { pushOne(ws, 'err', '属性名不对：根骨/力量/体质/身法/幸运/魅力/悟性/福缘'); return; }
+      if ((p.free_points || 0) <= 0) { pushOne(ws, 'err', '没有可分配的点数。'); return; }
+      let times = m[2] ? parseInt(m[2]) : 1;
+      times = Math.max(1, Math.min(times, p.free_points));
+      p[attrKey] = (p[attrKey] || 10) + times;
+      p.free_points = (p.free_points || 0) - times;
+      const d = RPG.derivedStats(p); p.max_hp = d.max_hp; p.max_nei = d.max_nei;
+      savePlayer(p); sync(ws, p);
+      pushOne(ws, 'faction', `你的${RPG.ATTR_NAMES[attrKey]} +${times}（剩余 ${p.free_points} 点）。`);
+      return;
+    }
+
     // —— 物品/用/学/商店/任务/打/决斗/交易 ——
     handleCombatAndQuests(ws, p, verb, args, rest);
+  }
+
+  // —— 人物属性面板文本 ——
+  function charPanelLines(p) {
+    const d = RPG.derivedStats(p);
+    const eq = RPG.equippedMap(p);
+    const lines = [
+      L('room', `【人物属性】${p.name}　Lv.${p.level}　${getRankName(p.rank)}`),
+      L('dim', `经验 ${p.exp}/${RPG.expNeed(p.level)}　木人桩熟练 ${p.dummy_prof}/10　待加点 ${p.free_points}`),
+      L('sys', `根骨${p.gen}　力量${p.str}　体质${p.con}　身法${p.agi}`),
+      L('sys', `幸运${p.luck}　魅力${p.cha}　悟性${p.wit}　福缘${p.fortune}`),
+      L('sys', `气血 ${p.hp}/${p.max_hp}　内力 ${p.nei}/${p.max_nei}　银两 ${p.silver.toFixed(1)}`),
+      L('combat', `攻击 ${d.atk}　防御 ${d.def}　暴击 ${Math.round(d.crit*100)}%　闪避 ${Math.round(d.dodge*100)}%　命中 ${Math.round(d.hit*100)}%${d.special ? '　特殊:'+d.special : ''}`),
+      L('room', '— 装备 —'),
+    ];
+    for (const s of RPG.SLOT_KEYS) {
+      if (eq[s]) {
+        if (Array.isArray(eq[s])) for (const it of eq[s]) lines.push(L('sys', `${RPG.SLOT_NAMES[s]}：${it.name}（攻+${it.atk||0} 防+${it.def||0}${it.rarity?' '+it.rarity:''}）`));
+        else lines.push(L('sys', `${RPG.SLOT_NAMES[s]}：${eq[s].name}（攻+${eq[s].atk||0} 防+${eq[s].def||0}${eq[s].rarity?' '+eq[s].rarity:''}）`));
+      } else { lines.push(L('dim', `${RPG.SLOT_NAMES[s]}：（空）`)); }
+    }
+    if (p.faction_id) lines.push(L('faction', `门派：${FACTIONS[p.faction_id]?.name || p.faction_id}　声望 ${p.faction_rep[p.faction_id]||0}　贡献 ${p.contrib||0}`));
+    return lines;
+  }
+  // —— 背包面板（消耗品 + 装备）——
+  function inventoryLines(p) {
+    const inv = db.prepare('SELECT item_key, count FROM inventory WHERE player_id=?').all(p.id);
+    const lines = [L('room', '【背包】')];
+    if (!inv.length) lines.push(L('dim', '（空空如也）'));
+    for (const r of inv) {
+      const it = RPG.itemOf(r.item_key);
+      const info = it ? (it.heal ? `回血${it.heal}` : it.nei ? `回内${it.nei}` : it.src) : '';
+      lines.push(L('sys', `${it?.name || r.item_key} ×${r.count}${info ? '（'+info+'）' : ''}`));
+    }
+    const eqInv = db.prepare('SELECT * FROM player_items WHERE player_id=? AND equipped=0').all(p.id);
+    if (eqInv.length) {
+      lines.push(L('room', '— 未装备 —'));
+      for (const r of eqInv) lines.push(L('sys', `${r.name}（${RPG.SLOT_NAMES[r.slot]} 攻+${r.atk||0} 防+${r.def||0}${r.rarity?' '+r.rarity:''}）　穿 ${r.name}`));
+    }
+    lines.push(L('dim', `银两：${p.silver.toFixed(1)} 两　打：用 <物品> / 穿 <装备> / 卖 <物品>`));
+    return lines;
   }
 
   // —— NPC 对话（带 LLM + 降级）——
@@ -1015,6 +1199,7 @@ function createGame() {
       const q = ws._canAcceptQuests[idx - 1];
       if (!q) { pushOne(ws, 'err', '编号不对。'); return; }
       db.prepare('INSERT OR REPLACE INTO player_quests (player_id, quest_key, status, started_at) VALUES (?,?,?,?)').run(p.id, q.key, 'active', now());
+      sync(ws, p);
       push(ws, [
         L('faction', `你接了「${q.title}」。`),
         L('dim', q.desc),
@@ -1072,13 +1257,14 @@ function createGame() {
       if (!active.length) { pushOne(ws, 'dim', '你没在做任务。'); return; }
       const q = active[0];
       db.prepare('UPDATE player_quests SET status=? WHERE player_id=? AND quest_key=?').run('failed', p.id, q.key);
+      sync(ws, p);
       pushOne(ws, 'dim', `你放弃了「${q.title}」。放弃后这条任务不能再接了。`);
       return;
     }
 
     // ======================== P2-2 商店 ========================
     if (['商店','shop'].includes(verb)) {
-      const shopsHere = Object.values(SHOPS).filter(s => s.location === p.location_id);
+      const shopsHere = RPG.shopsAt(p.location_id);
       if (!shopsHere.length) { pushOne(ws, 'dim', '这里没有店铺。'); return; }
       const lines = [L('room', `【${NODES[p.location_id].name}的店铺】`)];
       for (const s of shopsHere) lines.push(L('sys', `· ${s.name}　（打 ${s.teach ? '学 <招式名>' : s.inn ? '客栈' : s.teahouse ? '传闻' : '买 查看'}）`));
@@ -1087,19 +1273,19 @@ function createGame() {
     }
     // 武馆：列可学招式 + 提示学武指令
     if (verb === '武馆') {
-      const shopsHere = Object.values(SHOPS).filter(s => s.location === p.location_id && s.teach);
+      const shopsHere = RPG.shopsAt(p.location_id).filter(s => s.teach);
       if (!shopsHere.length) { pushOne(ws, 'dim', '这里没有武馆。'); return; }
-      const lines = [L('room', `【${shopsHere[0].name}】`)];
-      // 列教的招
-      const teachMoves = (shopsHere[0].items || []).filter(k => MOVES[k]).map(k => MOVES[k]);
-      lines.push(L('dim', `这里教：${teachMoves.map(m => m.name).join(' / ')}（每招 5 两）`));
-      lines.push(L('dim', `打 学 <招式名>　例：学 直拳`));
+      const sh = shopsHere[0];
+      const lines = [L('room', `【${sh.name}】`)];
+      const teachMoves = (sh.items || []).map(k => RPG.moveOf(k)).filter(Boolean);
+      lines.push(L('dim', `这里教：${teachMoves.map(m => `${m.name}（${m.learn_cost || 0} 两）`).join(' / ')}`));
+      lines.push(L('dim', `打 学 <招式名>　例：学 ${teachMoves[0]?.name || '直拳'}（需满足属性/声望门槛）`));
       push(ws, lines);
       return;
     }
     // 客栈：休息
     if (verb === '客栈') {
-      const shopsHere = Object.values(SHOPS).filter(s => s.location === p.location_id && s.inn);
+      const shopsHere = RPG.shopsAt(p.location_id).filter(s => s.inn);
       if (!shopsHere.length) { pushOne(ws, 'dim', '这里没有客栈。'); return; }
       if (p.silver < 2) { pushOne(ws, 'dim', '住店要 2 两，你身上不够。'); return; }
       p.silver -= 2;
@@ -1111,7 +1297,7 @@ function createGame() {
     }
     // 茶馆/传闻
     if (verb === '传闻') {
-      const shopsHere = Object.values(SHOPS).filter(s => s.location === p.location_id && s.teahouse);
+      const shopsHere = RPG.shopsAt(p.location_id).filter(s => s.teahouse);
       if (!shopsHere.length) { /* 茶馆不是必须，继续走下面的 rumor 表 */ }
       const rows = db.prepare('SELECT * FROM rumors WHERE location_id=? ORDER BY created_at DESC LIMIT 10').all(p.location_id);
       pushOne(ws, 'room', '【茶馆公告板】');
@@ -1123,88 +1309,97 @@ function createGame() {
       return;
     }
     if (verb === '买') {
-      const shopsHere = Object.values(SHOPS).filter(s => s.location === p.location_id);
+      const shopsHere = RPG.shopsAt(p.location_id);
       if (!shopsHere.length) { pushOne(ws, 'dim', '这里没有店铺。'); return; }
-      // 取第一个（武馆除外）
-      const shop = (args[0] && shopsHere.find(s => s.name.includes(args[0]))) ||
-                   shopsHere.find(s => !s.teach && !s.black && !s.auction) ||
-                   shopsHere[0];
-
-      if (shop.teach) { // 武馆
-        pushOne(ws, 'dim', `打 学 <招式名> 在武馆学武功。武馆卖：直拳/劈砍/吐纳/疾步（各 5 两）`);
-        return;
+      let shop = (args[0] && shopsHere.find(s => s.name.includes(args[0]))) || null;
+      // args[0] 不是店名时：视为物品名，跨店找卖它的店（自动去对应店铺买）
+      if (!shop && args[0] && (RPG.itemByName(args[0]) || RPG.itemOf(args[0]))) {
+        const wantKey = (RPG.itemByName(args[0]) || RPG.itemOf(args[0])).key;
+        shop = shopsHere.find(s => !s.teach && !s.inn && !s.teahouse && (s.items || []).includes(wantKey));
       }
-      if (shop.inn) { pushOne(ws, 'dim', '打 客栈 / 休息 恢复满 HP。'); return; }
+      shop = shop || shopsHere.find(s => !s.teach && !s.black && !s.auction && !s.gambling && !s.info) ||
+                   shopsHere[0];
+      if (shop.teach) { pushOne(ws, 'dim', `武馆教武功，打：学 <招式名>（按招式等级收学费）。`); return; }
+      if (shop.inn) { pushOne(ws, 'dim', '打 客栈 / 休息 恢复满 HP（2 两）。'); return; }
       if (shop.teahouse) { pushOne(ws, 'dim', '打 传闻 看茶馆公告板。'); return; }
-      if (shop.black) { // 黑市
+      if (shop.black) {
         if (p.fame < 100 && Math.random() < 0.7) {
           p.infamy += 5; savePlayer(p);
-          pushOne(ws, 'rumor', '黑市的人觉得你不够狠。恶名 +5，下次再来。');
-          return;
+          pushOne(ws, 'rumor', '黑市的人觉得你不够狠。恶名 +5，下次再来。'); return;
         }
-        const items = (shop.items || []).map(k => ITEMS[k]).filter(Boolean);
         pushOne(ws, 'room', `【${shop.name}】（黑市价 ×${shop.price_rate}）`);
-        for (const it of items) pushOne(ws, 'sys', `${it.name}　${(it.price * shop.price_rate).toFixed(1)} 两　（违禁品：小心被抓）`);
+        for (const k of (shop.items || [])) { const it = RPG.itemOf(k); if (it) pushOne(ws, 'sys', `${it.name}　${(it.price*shop.price_rate).toFixed(1)} 两（违禁品）`); }
         pushOne(ws, 'dim', `身上银两：${p.silver.toFixed(1)} 两　恶名：${p.infamy}`);
         return;
       }
-
-      // 普通商店：列物品
+      // 普通商店：列物品（DB）
       const discount = p.fame >= 1000 ? 0.7 : p.fame >= 600 ? 0.8 : p.fame >= 300 ? 0.9 : 1.0;
-      const items = (shop.items || []).map(k => ITEMS[k]).filter(Boolean);
-      const lines = [L('room', `【${shop.name}】（基准价 ×${shop.price_rate}，名望折扣 ${Math.round((1-discount)*100)}%）`)];
-      for (const it of items) {
+      const list = (shop.items || []).map(k => RPG.itemOf(k)).filter(Boolean);
+      const lines = [L('room', `【${shop.name}】（基准 ×${shop.price_rate}，名望折扣 ${Math.round((1-discount)*100)}%）`)];
+      for (const it of list) {
         const price = (it.price * shop.price_rate * discount).toFixed(1);
-        lines.push(L('sys', `${it.name}　${price} 两　（${it.heal ? '回血' : it.nei ? '回内力' : it.type}）`));
+        const info = it.heal ? `回血${it.heal}` : it.nei ? `回内${it.nei}` : (it.src==='equipment' ? `${RPG.SLOT_NAMES[it.slot]} 攻${it.atk||0} 防${it.def||0} ${it.rarity}` : it.src);
+        lines.push(L('sys', `${it.name}　${price} 两　（${info}）`));
       }
-      lines.push(L('dim', `身上银两：${p.silver.toFixed(1)} 两`));
-      lines.push(L('dim', `买 <物品名>　例：买 馒头`));
-      push(ws, lines);
-
-      // 如果带了物品名，直接买
-      const itemName = args[1] || rest;
+      lines.push(L('dim', `身上银两：${p.silver.toFixed(1)} 两　买 <物品名> [数量]`));
+      // 带物品名直接买（支持数量：args 最后一个数字）
+      const parts = (rest || args.join(' ')).split(/\s+/).filter(Boolean);
+      const qtyMatch = parts.find((x, i) => i > 0 && /^\d+$/.test(x));
+      const itemName = parts.filter(x => !/^\d+$/.test(x)).join('');
+      if (qtyMatch) parts.splice(parts.indexOf(qtyMatch), 1);
+      const n = qtyMatch ? Math.max(1, parseInt(qtyMatch)) : 1;
       if (itemName) {
-        const it = items.find(x => x.name === itemName);
-        if (it) {
-          const price = Number((it.price * shop.price_rate * discount).toFixed(1));
-          if (p.silver < price) { pushOne(ws, 'err', '银两不够。'); return; }
-          p.silver -= price;
-          db.prepare('INSERT INTO inventory (player_id,item_key,count,created_at) VALUES (?,?,1,?)').run(p.id, it.key, now());
-          savePlayer(p);
-          sync(ws, p);
-          pushOne(ws, 'faction', `你买了 ${it.name}。花费 ${price} 两。`);
+        const it = list.find(x => x.name === itemName) || RPG.itemByName(itemName) || RPG.itemOf(itemName);
+        const inList = it && list.some(x => x.key === it.key);
+        if (it && inList) {
+          const unitPrice = Number((it.price * shop.price_rate * discount).toFixed(1));
+          const total = Number((unitPrice * n).toFixed(2));
+          if (p.silver < total) { pushOne(ws, 'err', `银两不够。${n} 个要 ${total} 两，你只有 ${p.silver.toFixed(1)} 两。`); return; }
+          p.silver -= total;
+          if (it.src === 'equipment') {
+            for (let i = 0; i < n; i++) RPG.giveEquipment(p, it.key);
+          } else {
+            RPG.addItem(p, it.key, n);
+          }
+          savePlayer(p); sync(ws, p);
+          pushOne(ws, 'faction', `你买了 ${it.name} ×${n}。花费 ${total} 两。`);
+        } else if (it) {
+          pushOne(ws, 'err', `「${it.name}」这里不卖。打 店铺名 看各家货单。`); return;
+        } else {
+          pushOne(ws, 'err', `买不到「${itemName}」。打 店铺名 看各家货单。`); return;
         }
-      }
+      } else { push(ws, lines); }
       return;
     }
     if (verb === '卖') {
-      const count = db.prepare('SELECT item_key, count FROM inventory WHERE player_id=?').all(p.id);
-      if (!count.length) { pushOne(ws, 'dim', '你背包里没有东西。'); return; }
-      const lines = [L('room', '【背包】')];
-      let total = 0;
-      for (const row of count) {
-        const it = ITEMS[row.item_key];
-        if (it) {
-          const sellPrice = (it.price * 0.5).toFixed(1);
-          lines.push(L('sys', `${it.name} ×${row.count}　卖出价 ${sellPrice} 两/个`));
-          total += Number(sellPrice) * row.count;
-        }
+      const inv = db.prepare('SELECT id, item_key, count FROM inventory WHERE player_id=?').all(p.id);
+      if (!inv.length) { pushOne(ws, 'dim', '你背包里没有可卖的东西。'); return; }
+      const lines = [L('room', '【可卖】')];
+      for (const r of inv) {
+        const it = RPG.itemOf(r.item_key);
+        const sp = ((it?.price || 1) * 0.5).toFixed(1);
+        lines.push(L('sys', `${it?.name || r.item_key} ×${r.count}　单价 ${sp} 两`));
       }
-      // 带物品名直接卖
-      const itemName = args.join('');
+      // 支持数量
+      const parts = (rest || args.join(' ')).split(/\s+/).filter(Boolean);
+      const qtyMatch = parts.find((x, i) => i > 0 && /^\d+$/.test(x));
+      const itemName = parts.filter(x => !/^\d+$/.test(x)).join('');
+      const n = qtyMatch ? Math.max(1, parseInt(qtyMatch)) : 1;
       if (itemName) {
-        const row = count.find(r => ITEMS[r.item_key]?.name === itemName);
-        if (row && ITEMS[row.item_key]) {
-          const it = ITEMS[row.item_key];
-          const sellPrice = Number((it.price * 0.5).toFixed(1)) * row.count;
-          p.silver += sellPrice;
-          db.prepare('DELETE FROM inventory WHERE id=?').run(row.id);
+        const row = inv.find(r => { const it = RPG.itemOf(r.item_key); return it && it.name === itemName; });
+        if (row) {
+          const it = RPG.itemOf(row.item_key);
+          const sell = Math.min(n, row.count);
+          const gain = Number((it.price * 0.5 * sell).toFixed(1));
+          p.silver += gain;
+          if (row.count - sell <= 0) db.prepare('DELETE FROM inventory WHERE id=?').run(row.id);
+          else db.prepare('UPDATE inventory SET count=count-? WHERE id=?').run(sell, row.id);
           savePlayer(p); sync(ws, p);
-          pushOne(ws, 'faction', `你卖了 ${it.name} ×${row.count}，得到 ${sellPrice} 两。`);
+          pushOne(ws, 'faction', `你卖了 ${it.name} ×${sell}，得到 ${gain} 两。`);
           return;
         }
       }
-      lines.push(L('dim', `全部卖出可获 ${total.toFixed(1)} 两。卖 <物品名>`));
+      lines.push(L('dim', `卖 <物品名> [数量]`));
       push(ws, lines);
       return;
     }
@@ -1296,8 +1491,8 @@ function createGame() {
     if (verb === '武器') {
       const equipped = db.prepare('SELECT * FROM player_items WHERE player_id=? AND equipped=1 AND item_type IN (?,?)').get(p.id, 'weapon', 'armor');
       if (equipped) {
-        const it = ITEMS[equipped.item_key];
-        pushOne(ws, 'dim', `当前装备：${it ? it.name : equipped.item_key}　（攻击 +${equipped.atk_bonus||0}　防御 +${equipped.def_bonus||0}）`);
+        const it = RPG.itemOf(equipped.item_key);
+        pushOne(ws, 'dim', `当前装备：${equipped.name || it?.name || equipped.item_key}　（攻击 +${equipped.atk_bonus||0}　防御 +${equipped.def_bonus||0}）`);
       } else {
         pushOne(ws, 'dim', '你赤手空拳，啥也没穿。');
       }
@@ -1307,59 +1502,36 @@ function createGame() {
       const eq = db.prepare('SELECT * FROM player_items WHERE player_id=? AND equipped=1 AND item_type=?').get(p.id, 'weapon');
       if (!eq) { pushOne(ws, 'dim', '你没拿武器。'); return; }
       db.prepare('UPDATE player_items SET equipped=0 WHERE id=?').run(eq.id);
-      const it = ITEMS[eq.item_key];
-      pushOne(ws, 'dim', `你卸下了 ${it ? it.name : eq.item_key}。`);
+      const it = RPG.itemOf(eq.item_key);
+      pushOne(ws, 'dim', `你卸下了 ${eq.name || it?.name || eq.item_key}。`);
       sync(ws, p);
       return;
     }
 
-    // —— 使用物品/吃药 ——
+    // —— 使用物品/吃药（支持数量）——
     if (['用','吃','使用','吃药'].includes(verb)) {
-      const itemName = args[0] || rest;
-      if (!itemName) { pushOne(ws, 'dim', '用 <物品名>　或：吃 <食物名>'); return; }
-      // 先查库存
-      const inv = db.prepare('SELECT * FROM inventory WHERE player_id=? AND item_key LIKE ?').all(p.id, '%' + itemName + '%');
-      if (!inv.length) {
-        // 也查 player_items
-        const inv2 = db.prepare('SELECT * FROM player_items WHERE player_id=? AND item_key LIKE ?').all(p.id, '%' + itemName + '%');
-        if (!inv2.length) { pushOne(ws, 'err', `你身上没有「${itemName}」。`); return; }
-        // player_items 暂时无法消耗，先提示
-        pushOne(ws, 'dim', `「${itemName}」是装备类，不能吃。`);
-        return;
-      }
-      const entry = inv[0];
-      const it = ITEMS[entry.item_key];
-      if (!it) { pushOne(ws, 'err', `物品「${entry.item_key}」没有定义。`); return; }
-      // 效果处理
-      if (it.heal) {
-        const amount = Math.min(it.heal, p.max_hp - p.hp);
-        p.hp += amount;
-        pushOne(ws, 'faction', `你吃了 ${it.name}，回复 ${amount} HP。`);
-      }
-      if (it.nei) {
-        const amount = Math.min(it.nei, p.max_nei - p.nei);
-        p.nei += amount;
-        pushOne(ws, 'faction', `你用了 ${it.name}，回复 ${amount} 内力。`);
-      }
-      if (entry.count > 1) {
-        db.prepare('UPDATE inventory SET count=count-1 WHERE id=?').run(entry.id);
-      } else {
-        db.prepare('DELETE FROM inventory WHERE id=?').run(entry.id);
-      }
+      const parts = (rest || args.join(' ')).split(/\s+/).filter(Boolean);
+      const qtyMatch = parts.find((x, i) => i > 0 && /^\d+$/.test(x));
+      const itemName = parts.filter(x => !/^\d+$/.test(x)).join('');
+      const n = qtyMatch ? Math.max(1, parseInt(qtyMatch)) : 1;
+      if (!itemName) { pushOne(ws, 'dim', '用 <物品名> [数量]　例：用 金疮药 3'); return; }
+      const res = RPG.useItem(p, itemName, n);
+      if (!res.ok) { pushOne(ws, 'err', res.msg || res.lines?.[0] || '用不了。'); return; }
       savePlayer(p); sync(ws, p);
+      push(ws, (res.lines || []).map(t => L('faction', t)));
       return;
     }
 
     // —— 拍卖行 ——
     if (['拍卖','拍卖行'].includes(verb)) {
-      const shopsHere = Object.values(SHOPS).filter(s => s.location === p.location_id && s.auction);
+      const shopsHere = RPG.shopsAt(p.location_id).filter(s => s.auction);
       if (!shopsHere.length) { pushOne(ws, 'dim', '这里没有拍卖行。拍卖行主要在大城市（洛阳/襄阳）。'); return; }
       const rows = db.prepare('SELECT * FROM market WHERE buyer_id IS NULL ORDER BY created_at DESC LIMIT 10').all();
       pushOne(ws, 'room', `【${shopsHere[0].name}】`);
       if (!rows.length) { pushOne(ws, 'dim', '货架上暂时没人寄卖。'); return; }
       for (const m of rows) {
-        const it = ITEMS[m.item_key];
-        pushOne(ws, 'sys', `${it ? it.name : m.item_key}　${m.price} 两　（${m.seller_name} 寄卖）`);
+        const it = RPG.itemOf(m.item_key);
+        pushOne(ws, 'sys', `${it?.name || m.item_key}　${m.price} 两　（${m.seller_name} 寄卖）`);
       }
       pushOne(ws, 'dim', `买 <物品名> 即可拍下。`);
       return;
@@ -1367,7 +1539,7 @@ function createGame() {
 
     // —— 黑市 ——
     if (verb === '黑市') {
-      const shopsHere = Object.values(SHOPS).filter(s => s.location === p.location_id && s.black);
+      const shopsHere = RPG.shopsAt(p.location_id).filter(s => s.black);
       if (!shopsHere.length) { pushOne(ws, 'dim', '这里没有黑市。黑市一般在大城市的暗巷里。'); return; }
       // 名望不足拦截
       if (p.fame < 100 && Math.random() < 0.7) {
@@ -1376,7 +1548,7 @@ function createGame() {
         return;
       }
       const shop = shopsHere[0];
-      const items = (shop.items || []).map(k => ITEMS[k]).filter(Boolean);
+      const items = (shop.items || []).map(k => RPG.itemOf(k)).filter(Boolean);
       pushOne(ws, 'room', `【${shop.name}】（黑市价 ×${shop.price_rate}）`);
       for (const it of items) pushOne(ws, 'sys', `${it.name}　${(it.price * shop.price_rate).toFixed(1)} 两　（违禁品：小心被抓）`);
       pushOne(ws, 'dim', `身上银两：${p.silver.toFixed(1)} 两　恶名：${p.infamy}`);
@@ -1401,12 +1573,25 @@ function createGame() {
       }
 
       const targetName = args.join('');
-      if (!targetName) { pushOne(ws, 'err', '打 <NPC/名字>'); return; }
+      if (!targetName) { pushOne(ws, 'err', '打 <NPC/野怪/名字>'); return; }
       // 先看是不是玩家
       let targetP = null;
       for (const [id, w] of online) { const q = playerOf(id); if (q && q.name === targetName) { targetP = q; break; } }
       if (targetP) {
         pushOne(ws, 'dim', `玩家之间的斗殴先用「决斗 ${targetName}」发起挑战。`);
+        return;
+      }
+      // 先查野怪（DB monsters）
+      const mon = db.prepare('SELECT * FROM monsters WHERE node_id=? AND name LIKE ? AND alive=1').get(p.location_id, `%${targetName}%`);
+      if (mon) {
+        RPG.combatMonster({ ws, p, monsterKey: mon.key, push, pushOne, savePlayer, sync, playerOf, broadcastAll, NODES });
+        return;
+      }
+      // 死怪：给刷新提示
+      const deadMon = db.prepare('SELECT * FROM monsters WHERE node_id=? AND name LIKE ? AND alive=0').get(p.location_id, `%${targetName}%`);
+      if (deadMon) {
+        const left = Math.max(0, Math.ceil(((deadMon.killed_at || 0) + (deadMon.respawn_min || 5) * 60000 - now()) / 60000));
+        pushOne(ws, 'err', `「${deadMon.name}」已被击败，约 ${left} 分钟后刷新。`);
         return;
       }
       const npc = db.prepare('SELECT * FROM npc_core WHERE location_id=? AND name LIKE ?').get(p.location_id, `%${targetName}%`);
@@ -1418,27 +1603,48 @@ function createGame() {
     }
 
     // ======================== 学武 ========================
+    const RANK_ORDER = { servant:0, trainee:1, outer:2, inner:3, inner_high:4, core:5, privileged:6, chief:7 };
     if (['学','学武','learn'].includes(verb)) {
-      const moveKey = args[0];
+      const moveName = args.join('') || (args[0] || '');
       const factionRep = p.faction_id ? (p.faction_rep[p.faction_id] || 0) : 0;
-      let move = MOVES[moveKey];
-      if (!move) move = Object.values(MOVES).find(m => m.name === moveKey);
+      let move = RPG.moveOf(moveName) || RPG.moveByName(moveName);
       if (!move) {
         const learned = new Set(db.prepare('SELECT move_key FROM player_moves WHERE player_id=?').all(p.id).map(r => r.move_key));
-        const available = Object.values(MOVES).filter(m => !learned.has(m.key) && !m.type.includes('被动'));
-        pushOne(ws, 'sys', `可学招式：${available.slice(0,10).map(m => m.name).join('、')}...（学 <招式名>）`);
+        const avail = Object.values(RPG.movesAll()).filter(m => !learned.has(m.key) && !m.type.includes('被动') && (!m.faction || m.faction === p.faction_id));
+        const show = avail.slice(0, 12).map(m => m.name).join('、');
+        pushOne(ws, 'sys', `可学招式：${show || '（先加入门派，去 加入 <门派名>）'}　（学 <招式名>）`);
         return;
       }
       if (move.faction && p.faction_id !== move.faction) { pushOne(ws, 'err', `这是${FACTIONS[move.faction]?.name}的武功，你不是那个门派的。`); return; }
-      if (move.req_rep && factionRep < move.req_rep) { pushOne(ws, 'err', `需要势力声望 ≥${move.req_rep}。`); return; }
+      // 弟子等级检查
+      if (move.req_rank && RANK_ORDER[p.rank] < RANK_ORDER[move.req_rank]) {
+        pushOne(ws, 'err', `需要是【${RANK_NAMES[move.req_rank] || move.req_rank}】才能学。你现在是【${getRankName(p.rank)}】。`); return;
+      }
+      if (move.req_rep && factionRep < move.req_rep) { pushOne(ws, 'err', `需要势力声望 ≥${move.req_rep}（你现在 ${factionRep}）。`); return; }
+      if (move.req_quest) {
+        const done = db.prepare('SELECT id FROM player_quests WHERE player_id=? AND quest_key=? AND status IN (\'done\',\'accepted\')').get(p.id, move.req_quest);
+        if (!done) { pushOne(ws, 'err', `需要先完成门派考验任务：${move.req_quest}。`); return; }
+      }
+      // 属性门槛（8 维）
+      const reqAttr = move.req_attr || {};
+      const missAttr = [];
+      for (const [k, v] of Object.entries(reqAttr)) {
+        if ((p[k] || 0) < v) missAttr.push(`${RPG.ATTR_NAMES[k]}${v}`);
+      }
+      if (missAttr.length) { pushOne(ws, 'err', `属性不足：需要 ${missAttr.join('、')}。你当前根骨${p.gen} 力量${p.str} 体质${p.con} 身法${p.agi} 悟性${p.wit}。`); return; }
       const existed = db.prepare('SELECT id FROM player_moves WHERE player_id=? AND move_key=?').get(p.id, move.key);
       if (existed) { pushOne(ws, 'err', '你已经会了。'); return; }
       if (move.learn_cost && p.silver < move.learn_cost) { pushOne(ws, 'err', `需要 ${move.learn_cost} 两。`); return; }
       if (move.learn_cost) p.silver -= move.learn_cost;
+      // 属性永久加成（绝学）
+      const ab = move.attr_bonus || {};
+      for (const [k, v] of Object.entries(ab)) p[k] = (p[k] || 10) + v;
       db.prepare('INSERT INTO player_moves (player_id, move_key, learned_at) VALUES (?,?,?)').run(p.id, move.key, now());
-      push(ws, [L('faction', `你学了「${move.name}」。`), L('dim', move.desc)]);
-      if (move.hp_bonus) { p.max_hp += move.hp_bonus; p.hp = p.max_hp; }
-      if (move.max_nei) p.max_nei += move.max_nei;
+      const apply = [];
+      if (move.hp_bonus) { p.max_hp += move.hp_bonus; p.hp = Math.min(p.max_hp, p.hp + move.hp_bonus); apply.push(`气血上限+${move.hp_bonus}`); }
+      if (move.max_nei) { p.max_nei += move.max_nei; apply.push(`内力上限+${move.max_nei}`); }
+      if (Object.keys(ab).length) apply.push(Object.entries(ab).map(([k,v]) => `${RPG.ATTR_NAMES[k]}+${v}`).join(' '));
+      push(ws, [L('faction', `你学了「${move.name}」${apply.length ? '（' + apply.join('，') + '）' : ''}。`), L('dim', move.desc)]);
       savePlayer(p); sync(ws, p);
       return;
     }
@@ -1452,20 +1658,116 @@ function createGame() {
       for (const [k, v] of Object.entries(FACTIONS)) if (v.name === factionId || k === factionId) fid = k;
       const f = FACTIONS[fid];
       if (!f) { pushOne(ws, 'err', `没这个门派：${factionId}`); return; }
-      if (p.faction_id === fid) { pushOne(ws, 'dim', `你已经是${f.name}的人了。`); return; }
+      if (p.faction_id === fid) { pushOne(ws, 'dim', `你已经是${f.name}的${getRankName(p.rank)}了。`); return; }
+      if (p.faction_id) { pushOne(ws, 'err', `你已经是${FACTIONS[p.faction_id]?.name}的人了，不能再拜入${f.name}。`); return; }
       // 声望门槛 20 才能入派
       const cur = p.faction_rep[fid] || 0;
       if (cur < 20) { pushOne(ws, 'err', `${f.name}不收关系这么浅的人。先做点他们的活（接 ${f.name} 任务）把关系搞到 20。你现在 ${cur}/20。`); return; }
       p.faction_id = fid;
+      p.rank = 'servant';               // 入派自动成为杂役弟子
+      p.contrib = 0;
+      p.joined_at = now();
+      p.rank_at = now();
       savePlayer(p); sync(ws, p);
-      pushOne(ws, 'faction', `你正式拜入${f.name}门下！从现在起你是${f.name}弟子。`);
+      push(ws, [
+        L('faction', `你拜入${f.name}门下！`),
+        L('dim', `你现在是【杂役弟子】。在门派里扫地、挑水、看门，好好表现。`),
+        L('dim', `打 弟子 查看门派等级与晋级条件。`),
+      ]);
       return;
     }
     if (verb === '退派' || verb === '叛派') {
       if (!p.faction_id) { pushOne(ws, 'dim', '你没门派。'); return; }
       p.faction_id = null;
+      p.rank = null;
+      p.contrib = 0;
       savePlayer(p); sync(ws, p);
       pushOne(ws, 'rumor', '你离开了门派。江湖传言很快会传开。');
+      return;
+    }
+
+    // ======================== 弟子指令：查看等级/晋级条件 ========================
+    if (['弟子','弟子等级','我的门派','rank'].includes(verb)) {
+      if (!p.faction_id) {
+        push(ws, [
+          L('dim', '你还没门派。'),
+          L('dim', '做门派任务把声望搞到 20，然后在门派地图打「加入 <门派名>」。'),
+        ]);
+        return;
+      }
+      const f = FACTIONS[p.faction_id];
+      const rankName = getRankName(p.rank);
+      const rep = p.faction_rep[p.faction_id] || 0;
+      const contrib = p.contrib || 0;
+      const daysIn = p.joined_at ? Math.floor((now() - p.joined_at) / 86400000) : 0;
+      const curOrder = RANK_ORDER[p.rank] ?? 0;
+
+      const tiers = db.prepare('SELECT * FROM faction_tiers WHERE faction=? ORDER BY rank_order').all(p.faction_id);
+      const curTier = tiers.find(t => t.rank === p.rank);
+      const nextTier = tiers.find(t => t.rank_order === curOrder + 1);
+
+      const lines = [
+        L('faction', `═══ ${f.name} · 门派档案 ═══`),
+        L('dim', `等级：【${rankName}】（${curOrder}/7）`),
+        L('dim', `声望：${rep}　贡献：${contrib}　入派 ${daysIn} 天`),
+      ];
+
+      if (nextTier) {
+        lines.push(L('dim', `—— 下一级晋级：【${nextTier.rank_name}】 ——`));
+        lines.push(L('dim', `· 声望 ≥${nextTier.min_rep}（你 ${rep}）`));
+        lines.push(L('dim', `· 贡献 ≥${nextTier.min_contrib}（你 ${contrib}）`));
+        lines.push(L('dim', `· 入派满 ${nextTier.min_days} 天（你 ${daysIn} 天）`));
+        if (nextTier.req_quest) lines.push(L('dim', `· 完成门派考验任务：接 ${nextTier.req_quest}`));
+        lines.push(L('dim', `· 打 晋级 检查是否满足条件`));
+      } else {
+        lines.push(L('dim', '你已经是门派最高等级了。'));
+      }
+      lines.push(L('dim', curTier?.desc || ''));
+      push(ws, lines);
+      return;
+    }
+
+    // ======================== 晋级指令 ========================
+    if (['晋级','进升','promote'].includes(verb)) {
+      if (!p.faction_id) { pushOne(ws, 'err', '你还没门派。'); return; }
+      const curOrder = RANK_ORDER[p.rank] ?? 0;
+      if (curOrder >= 7) { pushOne(ws, 'dim', '你已经是首席弟子了，还想啥？'); return; }
+      const tiers = db.prepare('SELECT * FROM faction_tiers WHERE faction=? ORDER BY rank_order').all(p.faction_id);
+      const nextTier = tiers.find(t => t.rank_order === curOrder + 1);
+      if (!nextTier) { pushOne(ws, 'dim', '已经到顶了。'); return; }
+
+      const rep = p.faction_rep[p.faction_id] || 0;
+      const contrib = p.contrib || 0;
+      const daysIn = p.joined_at ? Math.floor((now() - p.joined_at) / 86400000) : 0;
+
+      const failed = [];
+      if (rep < nextTier.min_rep) failed.push(`声望 ${rep}/${nextTier.min_rep}`);
+      if (contrib < nextTier.min_contrib) failed.push(`贡献 ${contrib}/${nextTier.min_contrib}`);
+      if (daysIn < nextTier.min_days) failed.push(`入派天数 ${daysIn}/${nextTier.min_days}`);
+      if (nextTier.req_quest) {
+        const done = db.prepare('SELECT id FROM player_quests WHERE player_id=? AND quest_key=? AND status IN (\'done\',\'accepted\')').get(p.id, nextTier.req_quest);
+        if (!done) failed.push(`门派考验任务 ${nextTier.req_quest}`);
+      }
+
+      if (failed.length) {
+        push(ws, [
+          L('err', '还没满足晋级条件：'),
+          ...failed.map(c => L('dim', `· ${c}  ❌`)),
+          L('dim', `想晋级【${nextTier.rank_name}】需要全部满足。打 弟子 看进度。`),
+        ]);
+        return;
+      }
+
+      // 满足条件，晋级！
+      const oldRank = p.rank;
+      p.rank = nextTier.rank;
+      p.rank_at = now();
+      savePlayer(p); sync(ws, p);
+      push(ws, [
+        L('faction', `🎉 晋级成功！你从【${getRankName(oldRank)}】升为【${nextTier.rank_name}】！`),
+        L('dim', nextTier.desc),
+        L('dim', `现在可以学更多门派武功了，去 学武功吧！`),
+      ]);
       return;
     }
     if (verb === '立誓') {
@@ -1540,29 +1842,6 @@ function createGame() {
       return;
     }
 
-    // ======================== 用物品/吃药 ========================
-    if (['用','吃','使用','吃药'].includes(verb)) {
-      p.hp = Math.min(p.max_hp, p.hp + 30);
-      savePlayer(p);
-      pushOne(ws, 'sys', '你吃了点东西，感觉好了些。');
-      sync(ws, p);
-      return;
-    }
-
-    // ======================== 物品/背包 ========================
-    if (['物品','inventory','inv'].includes(verb)) {
-      pushOne(ws, 'dim', `银两：${p.silver.toFixed(1)} 两　HP：${p.hp}/${p.max_hp}　内力：${p.nei}/${p.max_nei}　恶名：${p.infamy}`);
-      const count = db.prepare('SELECT item_key, count FROM inventory WHERE player_id=?').all(p.id);
-      if (count.length) {
-        const names = count.map(r => `${ITEMS[r.item_key]?.name || r.item_key} ×${r.count}`).join('、');
-        pushOne(ws, 'dim', `背包：${names}`);
-      }
-      const learned = db.prepare('SELECT move_key FROM player_moves WHERE player_id=?').all(p.id);
-      if (learned.length) pushOne(ws, 'dim', `已学武功：${learned.map(r => MOVES[r.move_key]?.name || r.move_key).join('、')}`);
-      sync(ws, p);
-      return;
-    }
-
     pushOne(ws, 'err', `指令「${verb}」打错或没开放。打「帮」看全部。`);
   }
 
@@ -1570,18 +1849,19 @@ function createGame() {
   function combatPvE(ws, p, npc) {
     const learned = db.prepare('SELECT move_key FROM player_moves WHERE player_id=?').all(p.id).map(r => r.move_key);
     const defaultMoves = ['mp01','mp02','mp04'];
-    const myMoves = [...learned.filter(k => MOVES[k] && MOVES[k].counter), ...defaultMoves];
+    const myMoves = [...learned.filter(k => { const mv = RPG.moveOf(k); return mv && mv.counter; }), ...defaultMoves];
+    const d = RPG.derivedStats(p);
 
     let myHp = p.hp, npcHp = npc.hp || 30;
     const log = [];
 
     for (let round = 1; round <= 10; round++) {
       const moveKey = choice(myMoves);
-      const move = MOVES[moveKey];
+      const move = RPG.moveOf(moveKey);
       if (!move) continue;
-      let dmg = range(move.damage);
-      if (move.counter === COUNTER[npc.style]) dmg = Math.round(dmg * 1.3);
-      else if (COUNTER[move.counter] === npc.style) dmg = Math.round(dmg * 0.7);
+      let dmg = range(move.damage) + Math.floor(d.atk * 0.4);
+      if (move.counter === RPG.COUNTER[npc.style]) dmg = Math.round(dmg * 1.3);
+      else if (move.counter && RPG.COUNTER[move.counter] === npc.style) dmg = Math.round(dmg * 0.7);
       if (move.nei_cost && p.nei < move.nei_cost) { log.push('（内力不够，换了一招。）'); continue; }
       if (move.nei_cost) p.nei -= move.nei_cost;
 
@@ -1640,14 +1920,14 @@ function createGame() {
     const learnedC = new Set(db.prepare('SELECT move_key FROM player_moves WHERE player_id=?').all(challenger.id).map(r => r.move_key));
     const learnedT = new Set(db.prepare('SELECT move_key FROM player_moves WHERE player_id=?').all(target.id).map(r => r.move_key));
     const base = ['mp01','mp02','mp04'];
-    const movesC = [...[...learnedC].filter(k => MOVES[k] && MOVES[k].counter), ...base];
-    const movesT = [...[...learnedT].filter(k => MOVES[k] && MOVES[k].counter), ...base];
+    const movesC = [...[...learnedC].filter(k => { const mv = RPG.moveOf(k); return mv && mv.counter; }), ...base];
+    const movesT = [...[...learnedT].filter(k => { const mv = RPG.moveOf(k); return mv && mv.counter; }), ...base];
 
     for (let round = 1; round <= 15; round++) {
       // 挑战者先手
-      const moveC = MOVES[choice(movesC)];
+      const moveC = RPG.moveOf(choice(movesC));
       let dmgC = range(moveC.damage);
-      if (COUNTER[moveC.counter] === challenger.combat_style) dmgC = Math.round(dmgC * 0.7);
+      if (moveC.counter && RPG.COUNTER[moveC.counter] === challenger.combat_style) dmgC = Math.round(dmgC * 0.7);
       if (moveC.nei_cost && challenger.nei < moveC.nei_cost) continue;
       if (moveC.nei_cost) challenger.nei -= moveC.nei_cost;
       hpT -= dmgC;
@@ -1656,9 +1936,9 @@ function createGame() {
       if (hpT <= 0) { endDuel(challenger, target, 'challenger'); return; }
 
       // 目标反击
-      const moveT = MOVES[choice(movesT)];
+      const moveT = RPG.moveOf(choice(movesT));
       let dmgT = range(moveT.damage);
-      if (COUNTER[moveT.counter] === target.combat_style) dmgT = Math.round(dmgT * 0.7);
+      if (moveT.counter && RPG.COUNTER[moveT.counter] === target.combat_style) dmgT = Math.round(dmgT * 0.7);
       if (moveT.nei_cost && target.nei < moveT.nei_cost) continue;
       if (moveT.nei_cost) target.nei -= moveT.nei_cost;
       hpC -= dmgT;
@@ -1771,7 +2051,33 @@ function createGame() {
     players.delete(id);
   }
 
-  return { connect, disconnect, exec, stateOf };
+  function onlineCount() { return online.size; }
+  function onlinePlayers() { return new Set(online.keys()); }
+
+  function notifyPlayer(id) {
+    const key = Number(id);
+    const ws = online.get(key);
+    if (ws && ws.readyState === 1) {
+      const fresh = loadPlayer(key);
+      if (fresh) {
+        players.set(key, fresh);
+        sync(ws, fresh);
+      }
+    }
+  }
+
+  function kickPlayer(id, reason) {
+    const ws = online.get(Number(id));
+    if (ws) {
+      try { ws.send(JSON.stringify({ type:'kick', reason })); } catch(e) {}
+      setTimeout(() => { try { ws.close(); } catch(e) {} }, 100);
+    }
+    online.delete(Number(id));
+    players.delete(Number(id));
+    db.prepare('DELETE FROM sessions WHERE player_id=?').run(Number(id));
+  }
+
+  return { connect, disconnect, exec, stateOf, onlineCount, onlinePlayers, notifyPlayer, kickPlayer };
 }
 
 module.exports = { createGame, hashPass, makeSession };

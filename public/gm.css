@@ -1,0 +1,115 @@
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: "Microsoft YaHei", "PingFang SC", sans-serif; background: #0f1117; color: #e0e0e0; height: 100vh; overflow: hidden; }
+
+/* === GM 登录 === */
+.gm-login { display: flex; align-items: center; justify-content: center; height: 100vh; background: linear-gradient(135deg, #1a140c 0%, #0f1117 100%); }
+.gm-login-box { background: #1a1d27; padding: 40px; border-radius: 12px; border: 1px solid #2a2d3a; text-align: center; min-width: 360px; }
+.gm-login-box h1 { color: #d4a574; font-size: 24px; margin-bottom: 8px; }
+.gm-login-box .sub { color: #888; margin-bottom: 24px; font-size: 13px; }
+.gm-login-box input { width: 100%; padding: 12px; background: #0f1117; border: 1px solid #2a2d3a; border-radius: 6px; color: #e0e0e0; font-size: 14px; margin-bottom: 12px; }
+.gm-login-box input:focus { outline: none; border-color: #d4a574; }
+.gm-login-box button { width: 100%; padding: 12px; background: #d4a574; color: #1a140c; border: none; border-radius: 6px; font-size: 15px; font-weight: bold; cursor: pointer; }
+.gm-login-box button:hover { background: #e8b887; }
+.gm-login-box .err { color: #ff6b6b; margin-top: 12px; font-size: 13px; }
+
+/* === GM 主界面 === */
+.gm-app { display: flex; flex-direction: column; height: 100vh; }
+.gm-top { background: #1a1d27; padding: 12px 20px; display: flex; align-items: center; gap: 20px; border-bottom: 1px solid #2a2d3a; flex-shrink: 0; }
+.gm-brand { font-size: 18px; color: #d4a574; font-weight: bold; }
+.gm-status { display: flex; gap: 8px; flex: 1; }
+.st-badge { background: #2a2d3a; padding: 4px 10px; border-radius: 14px; font-size: 12px; color: #aaa; }
+.st-badge.on { background: #1f3d27; color: #6ee7a0; }
+.st-badge.off { background: #3d2a2a; color: #ff9999; }
+.gm-actions { display: flex; gap: 8px; }
+.btn { padding: 6px 14px; background: #2a2d3a; color: #e0e0e0; border: 1px solid #3a3d4a; border-radius: 5px; font-size: 13px; cursor: pointer; text-decoration: none; display: inline-block; }
+.btn:hover { background: #3a3d4a; }
+.btn-danger { background: #5a2a2a; border-color: #7a3a3a; color: #ff9999; }
+.btn-danger:hover { background: #7a3a3a; }
+.btn-ok { background: #1f3d27; border-color: #2f5d3a; color: #6ee7a0; }
+.btn-ok:hover { background: #2f5d3a; }
+.btn-primary { background: #d4a574; color: #1a140c; border-color: #d4a574; font-weight: bold; }
+.btn-primary:hover { background: #e8b887; }
+.btn-sm { padding: 3px 8px; font-size: 12px; }
+
+.gm-body { display: flex; flex: 1; overflow: hidden; }
+
+/* === 左侧玩家列表 === */
+.gm-sidebar { width: 280px; background: #1a1d27; border-right: 1px solid #2a2d3a; display: flex; flex-direction: column; flex-shrink: 0; }
+.gm-search { padding: 12px; border-bottom: 1px solid #2a2d3a; }
+.gm-search input { width: 100%; padding: 8px; background: #0f1117; border: 1px solid #2a2d3a; border-radius: 5px; color: #e0e0e0; font-size: 13px; }
+.gm-search input:focus { outline: none; border-color: #d4a574; }
+.gm-player-list { flex: 1; overflow-y: auto; }
+.gm-player-list::-webkit-scrollbar { width: 6px; }
+.gm-player-list::-webkit-scrollbar-thumb { background: #2a2d3a; border-radius: 3px; }
+.gm-player-row { padding: 10px 12px; border-bottom: 1px solid #22253a; cursor: pointer; display: flex; justify-content: space-between; align-items: center; transition: background 0.15s; }
+.gm-player-row:hover { background: #22253a; }
+.gm-player-row.active { background: #2a2520; border-left: 3px solid #d4a574; }
+.gm-player-row .name { color: #e0e0e0; font-size: 14px; }
+.gm-player-row .meta { color: #666; font-size: 11px; }
+.gm-player-row .online-dot { width: 8px; height: 8px; border-radius: 50%; background: #444; }
+.gm-player-row.online .online-dot { background: #4ade80; }
+.gm-player-row.online .name::after { content: " · 在线"; color: #4ade80; font-size: 11px; margin-left: 4px; }
+
+/* === 右侧主面板 === */
+.gm-main { flex: 1; padding: 20px; overflow-y: auto; }
+.gm-empty { color: #666; text-align: center; margin-top: 60px; font-size: 15px; }
+.gm-empty.sm { margin-top: 24px; font-size: 13px; }
+.gm-main::-webkit-scrollbar { width: 8px; }
+.gm-main::-webkit-scrollbar-thumb { background: #2a2d3a; border-radius: 4px; }
+
+/* 玩家详情卡片 */
+.player-card { background: #1a1d27; border-radius: 10px; padding: 20px; margin-bottom: 16px; border: 1px solid #2a2d3a; }
+.player-card h2 { color: #d4a574; margin-bottom: 12px; font-size: 18px; display: flex; justify-content: space-between; align-items: center; }
+.player-card h2 .pid { color: #666; font-size: 13px; font-weight: normal; }
+.stat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 8px; }
+.stat-grid .stat { background: #0f1117; padding: 10px; border-radius: 6px; }
+.stat-grid .stat .label { color: #888; font-size: 11px; }
+.stat-grid .stat .val { color: #e0e0e0; font-size: 16px; font-weight: bold; margin-top: 2px; }
+
+/* 编辑表单 */
+.edit-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 12px; }
+.edit-grid label { display: flex; flex-direction: column; font-size: 12px; color: #888; }
+.edit-grid input, .edit-grid select { background: #0f1117; border: 1px solid #2a2d3a; border-radius: 4px; color: #e0e0e0; padding: 6px 8px; font-size: 13px; margin-top: 3px; }
+.edit-grid input:focus, .edit-grid select:focus { outline: none; border-color: #d4a574; }
+
+/* 物品/武功列表 */
+.section-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+.section-head h3 { color: #d4a574; font-size: 15px; }
+.item-grid { display: flex; flex-wrap: wrap; gap: 8px; }
+.tag { background: #22253a; color: #bbb; padding: 4px 10px; border-radius: 4px; font-size: 12px; display: inline-flex; align-items: center; gap: 6px; }
+.tag button { background: transparent; border: none; color: #ff6b6b; cursor: pointer; font-size: 14px; line-height: 1; padding: 0 2px; }
+.tag button:hover { color: #ff9999; }
+
+/* 操作按钮行 */
+.action-row { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+.action-row button { padding: 8px 16px; font-size: 13px; }
+
+/* 搜索弹出框 */
+.search-popup { position: relative; display: inline-block; }
+.search-popup .search-box { position: absolute; top: 100%; left: 0; z-index: 100; background: #1a1d27; border: 1px solid #2a2d3a; border-radius: 6px; width: 320px; max-height: 240px; overflow-y: auto; display: none; box-shadow: 0 4px 12px rgba(0,0,0,0.5); }
+.search-popup.open .search-box { display: block; }
+.search-popup .search-box input { width: 100%; padding: 8px; background: #0f1117; border: none; border-bottom: 1px solid #2a2d3a; color: #e0e0e0; font-size: 13px; }
+.search-popup .search-box .list { padding: 4px 0; }
+.search-popup .search-box .list div { padding: 6px 10px; cursor: pointer; font-size: 13px; }
+.search-popup .search-box .list div:hover { background: #22253a; }
+
+/* Toast */
+.toast { position: fixed; top: 20px; right: 20px; background: #1a1d27; border: 1px solid #d4a574; padding: 12px 20px; border-radius: 6px; color: #e0e0e0; font-size: 13px; z-index: 1000; opacity: 0; transform: translateY(-10px); transition: all 0.2s; }
+.toast.show { opacity: 1; transform: translateY(0); }
+.toast.err { border-color: #ff6b6b; color: #ff9999; }
+
+/* === 属性标签 & 装备卡 === */
+.tag.attr-tag { background: #1f2a35; border: 1px solid #2a3d4a; }
+.tag.attr-tag b { color: #d4a574; }
+.tag.eq-on { background: #1f3d27; border: 1px solid #2f5d3a; color: #b8e0c0; }
+.tag.mob-alive { border: 1px solid #3a5d3a; }
+.tag.mob-dead { opacity: 0.45; text-decoration: line-through; }
+
+/* === 底部全局野怪区 === */
+.gm-global { flex-shrink: 0; max-height: 210px; overflow-y: auto; background: #14161f; border-top: 1px solid #2a2d3a; padding: 12px 20px; }
+.gm-global::-webkit-scrollbar { width: 8px; }
+.gm-global::-webkit-scrollbar-thumb { background: #2a2d3a; border-radius: 4px; }
+.gm-global-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.gm-global-head h3 { color: #d4a574; font-size: 14px; }
+.gm-global .item-grid { gap: 6px; }
+.gm-global .tag { font-size: 11px; padding: 3px 8px; }
